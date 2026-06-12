@@ -344,10 +344,16 @@ export class View3D {
     this.surfaceStyle = 'facets'; // 'grid' | 'facets' | 'both'
     this.facetGap = 0.12; // fraction of the cell left as gap between tiles
     this.popAmount = 0.6; // -1 (pop INward) .. 0 (off) .. +1 (pop OUTward) on strike
+    // VOLUME mode: tiles become full PRISMS (columns) instead of panes, their
+    // base on the surface and their body protruding OUTWARD by facetDepth.
+    this.facetVolume = false;
+    this.facetDepth = 0.1; // prism height (world units; a cell is 0.25)
     this._FACET_LIFT = 0.003;
     const n = this.cells;
     this._faceIndex = new Map(this.surface.faces.map((f, k) => [f.id, k]));
     this._facetCount = this.surface.faces.length * n * n;
+    this._facetGeoPlane = new THREE.PlaneGeometry(1, 1);
+    this._facetGeoBox = new THREE.BoxGeometry(1, 1, 1);
     this.facetMat = new THREE.MeshStandardMaterial({
       color: 0xffffff, // per-instance colours carry everything
       roughness: 0.55,
@@ -362,7 +368,7 @@ export class View3D {
     // faces could blend on top of the near ones (the "messy overlap" artefact).
     // Six small meshes let the renderer draw back-to-front per face.
     this.facets = this.surface.faces.map((f, fi) => {
-      const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), this.facetMat, n * n);
+      const m = new THREE.InstancedMesh(this.facetVolume ? this._facetGeoBox : this._facetGeoPlane, this.facetMat, n * n);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.userData = { pick: 'facets', faceIdx: fi };
       this.shellGroup.add(m);
@@ -410,6 +416,11 @@ export class View3D {
 
   _rebuildFacetMatrices() {
     const n = this.cells;
+    // pane: zero thickness, sits FACET_LIFT above the surface. PRISM: unit box
+    // scaled to facetDepth along the normal, base on the surface (centre lifted
+    // half the depth) so the column grows OUTWARD from the acrylic.
+    const dz = this.facetVolume ? this.facetDepth : 1;
+    const L = this.facetVolume ? this.facetDepth / 2 + this._FACET_LIFT : this._FACET_LIFT;
     for (let fi = 0; fi < this.surface.faces.length; fi++) {
       const f = this.surface.faces[fi];
       const half = f.size / 2;
@@ -423,19 +434,18 @@ export class View3D {
           const u = f.u,
             v = f.v,
             nn = f.n;
-          const L = this._FACET_LIFT;
           const m = new THREE.Matrix4().set(
             u[0] * s,
             v[0] * s,
-            nn[0],
+            nn[0] * dz,
             P[0] + nn[0] * L,
             u[1] * s,
             v[1] * s,
-            nn[1],
+            nn[1] * dz,
             P[1] + nn[1] * L,
             u[2] * s,
             v[2] * s,
-            nn[2],
+            nn[2] * dz,
             P[2] + nn[2] * L,
             0,
             0,
@@ -487,6 +497,20 @@ export class View3D {
     this._rebuildFacetMatrices();
   }
 
+  // Tiles as PRISMS (full columns growing outward) vs flat panes.
+  setFacetVolume(on) {
+    this.facetVolume = !!on;
+    const geo = this.facetVolume ? this._facetGeoBox : this._facetGeoPlane;
+    for (const m of this.facets) m.geometry = geo;
+    this._rebuildFacetMatrices();
+  }
+
+  // Prism height (only matters in volume mode).
+  setFacetDepth(d) {
+    this.facetDepth = Math.max(0.02, Math.min(0.6, d));
+    if (this.facetVolume) this._rebuildFacetMatrices();
+  }
+
   setPopAmount(p) {
     this.popAmount = Math.max(-1, Math.min(1, p));
   }
@@ -517,6 +541,7 @@ export class View3D {
   // Re-tint a head's emissive colour (e.g. after its instrument changes).
   setHeadColor(index, color) {
     const c = new THREE.Color(color);
+    this.headBaseCols[index].copy(c);
     for (const mesh of this.headPools[index]) mesh.material.emissive.copy(c);
     for (const led of this.headLeds[index]) led.material.emissive.copy(c);
     this.headInners[index].material.emissive.copy(c);
@@ -641,6 +666,15 @@ export class View3D {
     this.headDepth = 0.05;
     this.headCoreSize = 0;
     this.mirrorFirefly = false;
+    // Note-driven firefly LIGHT (all live controls): idle fireflies glow dim
+    // and desaturated; flying OVER an armed cell they bloom to full instrument
+    // colour for the whole crossing — the NOTE lights the firefly.
+    this.fireflyBright = 4.0; // intensity while over an armed cell
+    this.fireflyDim = 0.4; // idle intensity
+    this.fireflyDesat = 0.7; // 0 = full colour when idle, 1 = white
+    this.headBaseCols = this.balls.map((b) => new THREE.Color(b.color));
+    this._fireflyCol = new THREE.Color();
+    this._white = new THREE.Color(0xffffff);
     this.headLeds = this.balls.map((b, bi) => {
       const arr = [];
       for (let k = 0; k < 2; k++) {
@@ -740,6 +774,21 @@ export class View3D {
   setMirrorFirefly(on) {
     this.mirrorFirefly = !!on;
     if (!on) for (const L of this.headLightsMirror) L.visible = false;
+  }
+
+  // Firefly glow over an armed cell (the note's light).
+  setFireflyBright(v) {
+    this.fireflyBright = Math.max(0, Math.min(10, v));
+  }
+
+  // Firefly idle glow (between notes).
+  setFireflyDim(v) {
+    this.fireflyDim = Math.max(0, Math.min(3, v));
+  }
+
+  // How washed-out the idle firefly is (0 = full colour, 1 = white).
+  setFireflyDesat(v) {
+    this.fireflyDesat = Math.max(0, Math.min(1, v));
   }
 
   // Place a flat disk (unit-scale geometry) at face-local (cx,cy), aligned to
@@ -1086,6 +1135,16 @@ export class View3D {
     for (let i = 0; i < this.balls.length; i++) {
       const b = this.balls[i];
       const pool = this.headPools[i];
+      // a DISABLED track (the track-count dial) simply doesn't exist on stage
+      if (b.active === false) {
+        for (const m of pool) m.visible = false;
+        for (const led of this.headLeds[i]) led.visible = false;
+        this.headInners[i].visible = false;
+        this.headLights[i].visible = false;
+        this.headLightsMirror[i].visible = false;
+        this.headRings[i].visible = false;
+        continue;
+      }
       const dt = now - b.flash;
       const k = dt < 220 ? 1 - dt / 220 : 0; // hit pulse 1 -> 0
       // A hit pulses BRIGHTNESS only (the head flares like a struck LED); its
@@ -1151,23 +1210,32 @@ export class View3D {
           py = cl(P[1] - f.n[1] * d),
           pz = cl(P[2] - f.n[2] * d);
         const core = this.headInners[i];
+        // the NOTE lights the firefly: idle = dim + desaturated; over an armed
+        // cell = full instrument colour at fireflyBright, for the whole crossing
+        const over =
+          this._facetSeq && this._facetSeq.armed.has(`${b.faceId}:${b.cellI}:${b.cellJ}`) && !b.muted;
+        const col = this._fireflyCol.copy(this.headBaseCols[i]);
+        if (!over) col.lerp(this._white, this.fireflyDesat);
         core.visible = this.headCoreSize > 0.02;
         if (core.visible) {
           core.position.set(px, py, pz);
           core.scale.setScalar(this.headCoreSize);
-          core.material.emissiveIntensity = b.muted ? 0.3 : this._headGlow + k * 2.2;
+          core.material.emissive.copy(col);
+          core.material.emissiveIntensity = b.muted ? 0.3 : (over ? this._headGlow + 1.4 : 0.5) + k * 2.2;
           core.material.opacity = b.muted ? 0.25 : 1;
         }
         const L = this.headLights[i];
         L.position.set(px, py, pz);
         L.visible = true;
-        L.intensity = b.muted ? 0.05 : 1.6 + k * 6.0;
+        L.color.copy(col);
+        L.intensity = b.muted ? 0.05 : (over ? this.fireflyBright : this.fireflyDim) + k * 4.0;
         // the invisible twin, mirrored on the OTHER side of the surface: lights
         // the facet sides the main firefly can't reach (fake diffusion)
         const ML = this.headLightsMirror[i];
         if (this.mirrorFirefly) {
           ML.position.set(P[0] + f.n[0] * d, P[1] + f.n[1] * d, P[2] + f.n[2] * d);
           ML.visible = true;
+          ML.color.copy(col);
           ML.intensity = L.intensity;
         } else ML.visible = false;
       } else {

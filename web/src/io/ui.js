@@ -165,23 +165,30 @@ export class UIPanel {
     rowCh.appendChild(this.chanSel);
     s.appendChild(rowCh);
 
-    // ---- Tuning: each band has its own SCALE and KEY (core/scales.js Band).
-    // Changing the key keeps the band's octave (root stays in the same 12-range).
-    const s2 = this._section('Tuning');
+    // ---- Tuning MASTERS: set the scale/key of EVERY track in a band at once
+    // (each track also has its own selects in the Tracks section).
+    const s2 = this._section('Tuning (whole band)');
     this.bandRows = {};
-    for (const [label, band] of [
-      ['H band', this.sequencer.bandH],
-      ['V band', this.sequencer.bandV],
+    for (const [label, kind, band] of [
+      ['H band', 'H', this.sequencer.bandH],
+      ['V band', 'V', this.sequencer.bandV],
     ]) {
       const row = el('div', 'ui-row');
       row.appendChild(el('label', 'ui-label', label));
       const scaleSel = el('select', 'ui-select');
       SCALE_NAMES.forEach((n) => scaleSel.appendChild(option(n, n)));
-      scaleSel.addEventListener('change', () => (band.scale = scaleSel.value));
+      scaleSel.addEventListener('change', () => {
+        band.scale = scaleSel.value;
+        for (const b of this.engine.balls) if (b.kind === kind && b.band) b.band.scale = scaleSel.value;
+        this.refresh();
+      });
       const keySel = el('select', 'ui-select');
       NOTE_NAMES.forEach((n, k) => keySel.appendChild(option(n, k)));
       keySel.addEventListener('change', () => {
-        band.root = Math.floor(band.root / 12) * 12 + +keySel.value;
+        const root = (r) => Math.floor(r / 12) * 12 + +keySel.value;
+        band.root = root(band.root);
+        for (const b of this.engine.balls) if (b.kind === kind && b.band) b.band.root = root(b.band.root);
+        this.refresh();
       });
       row.append(scaleSel, keySel);
       s2.appendChild(row);
@@ -226,6 +233,28 @@ export class UIPanel {
     this.gapInput.addEventListener('input', () => this.view.setFacetGap(+this.gapInput.value));
     rowG.appendChild(this.gapInput);
     s.appendChild(rowG);
+
+    // tiles as full PRISMS (columns) protruding from the body, not flat panes
+    const rowV = el('div', 'ui-row');
+    rowV.appendChild(el('label', 'ui-label', 'Volume'));
+    this.volumeChk = el('input', 'ui-check');
+    this.volumeChk.type = 'checkbox';
+    this.volumeChk.title = 'tiles become full columns (prisms) growing outward from the surface';
+    this.volumeChk.addEventListener('change', () => this.view.setFacetVolume(this.volumeChk.checked));
+    rowV.appendChild(this.volumeChk);
+    s.appendChild(rowV);
+
+    const rowHt = el('div', 'ui-row');
+    rowHt.appendChild(el('label', 'ui-label', 'Height'));
+    this.heightInput = el('input', 'ui-range');
+    this.heightInput.type = 'range';
+    this.heightInput.min = 0.02;
+    this.heightInput.max = 0.6;
+    this.heightInput.step = 0.01;
+    this.heightInput.title = 'prism height (volume mode)';
+    this.heightInput.addEventListener('input', () => this.view.setFacetDepth(+this.heightInput.value));
+    rowHt.appendChild(this.heightInput);
+    s.appendChild(rowHt);
 
     const rowP = el('div', 'ui-row');
     rowP.appendChild(el('label', 'ui-label', 'Pop'));
@@ -329,6 +358,43 @@ export class UIPanel {
     this.mirrorChk.addEventListener('change', () => this.view.setMirrorFirefly(this.mirrorChk.checked));
     rowMi.appendChild(this.mirrorChk);
     s3.appendChild(rowMi);
+
+    // the NOTE lights the firefly: idle = dim + desaturated, over a note = bright
+    const rowBr = el('div', 'ui-row');
+    rowBr.appendChild(el('label', 'ui-label', 'Bright'));
+    this.brightInput = el('input', 'ui-range');
+    this.brightInput.type = 'range';
+    this.brightInput.min = 0;
+    this.brightInput.max = 10;
+    this.brightInput.step = 0.1;
+    this.brightInput.title = 'light intensity while the firefly is OVER an armed note';
+    this.brightInput.addEventListener('input', () => this.view.setFireflyBright(+this.brightInput.value));
+    rowBr.appendChild(this.brightInput);
+    s3.appendChild(rowBr);
+
+    const rowDm = el('div', 'ui-row');
+    rowDm.appendChild(el('label', 'ui-label', 'Dim'));
+    this.dimInput = el('input', 'ui-range');
+    this.dimInput.type = 'range';
+    this.dimInput.min = 0;
+    this.dimInput.max = 3;
+    this.dimInput.step = 0.05;
+    this.dimInput.title = 'idle light intensity (between notes)';
+    this.dimInput.addEventListener('input', () => this.view.setFireflyDim(+this.dimInput.value));
+    rowDm.appendChild(this.dimInput);
+    s3.appendChild(rowDm);
+
+    const rowDs = el('div', 'ui-row');
+    rowDs.appendChild(el('label', 'ui-label', 'Desat'));
+    this.desatInput = el('input', 'ui-range');
+    this.desatInput.type = 'range';
+    this.desatInput.min = 0;
+    this.desatInput.max = 1;
+    this.desatInput.step = 0.05;
+    this.desatInput.title = 'how washed-out the idle firefly is (0 = full colour, 1 = white)';
+    this.desatInput.addEventListener('input', () => this.view.setFireflyDesat(+this.desatInput.value));
+    rowDs.appendChild(this.desatInput);
+    s3.appendChild(rowDs);
   }
 
   // ---- Tracks ---------------------------------------------------------------
@@ -337,7 +403,21 @@ export class UIPanel {
   // of the global BPM · reset this head to its spawn position).
   _buildTracks() {
     const s = this._section('Tracks');
-    s.classList.add('wide'); // 16 tracks flow into columns in the bottom bar
+    s.classList.add('wide'); // tracks flow into columns in the bottom bar
+
+    // how many tracks PER BAND are on stage (1..8): start small, grow as needed
+    const rowN = el('div', 'ui-row');
+    rowN.appendChild(el('label', 'ui-label', 'Heads ×2'));
+    this.countSel = el('select', 'ui-select');
+    for (let n = 1; n <= 8; n++) this.countSel.appendChild(option(String(n), n));
+    this.countSel.title = 'tracks per band (one H + one V each)';
+    this.countSel.addEventListener('change', () => {
+      this._applyTrackCount(+this.countSel.value);
+      this.refresh();
+    });
+    rowN.appendChild(this.countSel);
+    s.appendChild(rowN);
+
     const list = el('div', 'ui-track-list');
     s.appendChild(list);
     this.trackRows = [];
@@ -409,8 +489,43 @@ export class UIPanel {
       sub.appendChild(rst);
       box.appendChild(sub);
 
+      // per-track tuning: this head's own scale + key (full modal control)
+      const tune = el('div', 'ui-track sub');
+      tune.append(el('span', 'ui-sub-label', 'scale'));
+      const scaleSel = el('select', 'ui-select ui-rate');
+      SCALE_NAMES.forEach((n) => scaleSel.appendChild(option(n, n)));
+      scaleSel.addEventListener('change', () => {
+        if (ball.band) ball.band.scale = scaleSel.value;
+      });
+      tune.appendChild(scaleSel);
+      const keySel = el('select', 'ui-select ui-rate');
+      NOTE_NAMES.forEach((n, k) => keySel.appendChild(option(n, k)));
+      keySel.addEventListener('change', () => {
+        if (ball.band) ball.band.root = Math.floor(ball.band.root / 12) * 12 + +keySel.value;
+      });
+      tune.appendChild(keySel);
+      box.appendChild(tune);
+
       list.appendChild(box);
-      this.trackRows.push({ box, row, sel, pauseBtn, kindEl, rateSel });
+      this.trackRows.push({ box, row, sel, pauseBtn, kindEl, rateSel, scaleSel, keySel });
+    });
+
+    // initial stage size = however many tracks main.js woke up
+    this.trackCount = Math.max(
+      1,
+      this.engine.balls.filter((b) => b.active !== false && b.kind === 'H').length,
+    );
+    this._applyTrackCount(this.trackCount);
+  }
+
+  // Put N tracks per band on stage; the rest vanish (engine, view and list).
+  _applyTrackCount(n) {
+    this.trackCount = n;
+    this.engine.balls.forEach((ball, i) => {
+      const t = ball.track ?? i;
+      const on = t < n;
+      ball.active = on;
+      if (this.trackRows[i]) this.trackRows[i].box.style.display = on ? '' : 'none';
     });
   }
 
@@ -432,6 +547,12 @@ export class UIPanel {
     this.depthInput.value = this.view.headDepth;
     this.coreInput.value = this.view.headCoreSize;
     this.mirrorChk.checked = this.view.mirrorFirefly;
+    this.brightInput.value = this.view.fireflyBright;
+    this.dimInput.value = this.view.fireflyDim;
+    this.desatInput.value = this.view.fireflyDesat;
+    this.volumeChk.checked = this.view.facetVolume;
+    this.heightInput.value = this.view.facetDepth;
+    this.countSel.value = this.trackCount;
     for (const r of Object.values(this.bandRows)) {
       r.scaleSel.value = r.band.scale;
       r.keySel.value = ((r.band.root % 12) + 12) % 12;
@@ -446,6 +567,10 @@ export class UIPanel {
       r.rateSel.value = String(ball.rate);
       r.pauseBtn.textContent = ball.muted ? '▶' : '❚❚';
       r.pauseBtn.classList.toggle('on', !!ball.muted);
+      if (ball.band) {
+        r.scaleSel.value = ball.band.scale;
+        r.keySel.value = ((ball.band.root % 12) + 12) % 12;
+      }
     });
   }
 }

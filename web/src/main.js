@@ -4,6 +4,7 @@ import { buildCube } from './core/surface.js';
 import { Ball } from './core/ball.js';
 import { Engine } from './core/engine.js';
 import { Sequencer } from './core/sequencer.js';
+import { Band } from './core/scales.js';
 import { AudioOut } from './io/audio.js';
 import { Controls } from './io/controls.js';
 import { MidiOut } from './io/midi.js';
@@ -53,37 +54,44 @@ const balls = [];
 let idx = 0;
 for (let t = 0; t < H_TRACKS.length; t++) {
   const tr = H_TRACKS[t];
-  balls.push(
-    new Ball({
-      index: idx++,
-      faceId: FACE,
-      x: center(4), // the vertical axis (centre column)
-      y: center(tr.cell),
-      vx: tr.speed,
-      vy: 0,
-      color: H_COLORS[t % H_COLORS.length],
-      kind: 'H', // horizontal band: pitch comes from its ROW
-      instrument: PIANO,
-    }),
-  );
+  const b = new Ball({
+    index: idx++,
+    faceId: FACE,
+    x: center(4), // the vertical axis (centre column)
+    y: center(tr.cell),
+    vx: tr.speed,
+    vy: 0,
+    color: H_COLORS[t % H_COLORS.length],
+    kind: 'H', // horizontal band: pitch comes from its ROW
+    instrument: PIANO,
+  });
+  b.track = t; // position within its band (for the track-count dial)
+  b.band = new Band({ name: `H${t}`, scale: 'pentatonic', root: 60 }); // per-track tuning
+  balls.push(b);
 }
 for (let t = 0; t < V_TRACKS.length; t++) {
   const tr = V_TRACKS[t];
-  balls.push(
-    new Ball({
-      index: idx++,
-      faceId: FACE,
-      x: center(tr.cell),
-      y: center(t === 4 ? 1 : 0), // bottom-edge row; col 4 starts one up (the crossing)
-      vx: 0,
-      vy: tr.speed,
-      color: V_COLORS[t % V_COLORS.length],
-      kind: 'V', // transversal band: pitch comes from its COLUMN
-      instrument: DRUM0 + (t % 4),
-    }),
-  );
+  const b = new Ball({
+    index: idx++,
+    faceId: FACE,
+    x: center(tr.cell),
+    y: center(t === 4 ? 1 : 0), // bottom-edge row; col 4 starts one up (the crossing)
+    vx: 0,
+    vy: tr.speed,
+    color: V_COLORS[t % V_COLORS.length],
+    kind: 'V', // transversal band: pitch comes from its COLUMN
+    instrument: DRUM0 + (t % 4),
+  });
+  b.track = t;
+  b.band = new Band({ name: `V${t}`, scale: 'pentatonic', root: 57 });
+  balls.push(b);
 }
-for (const b of balls) b.muted = b.index !== 0; // only head 0 starts awake
+// Start modestly: 4 tracks per band awake-able (the dial in the panel opens up
+// to the full 8+8); only head 0 actually runs.
+for (const b of balls) {
+  b.active = b.track < 4;
+  b.muted = b.index !== 0;
+}
 
 const engine = new Engine(surface, balls, CELLS);
 engine.collisionRadius = CELL * 0.55; // two heads "meet" within ~one cell

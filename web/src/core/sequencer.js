@@ -83,8 +83,10 @@ export class Sequencer {
     return this.mutedCells.has(this.key(faceId, i, j));
   }
 
-  // The band a head belongs to.
+  // The tuning a head reads pitch through: its OWN per-track band when it has
+  // one (full per-track control), otherwise the shared band of its group.
   bandFor(ball) {
+    if (ball.band) return ball.band;
     return ball.kind === 'V' ? this.bandV : this.bandH;
   }
 

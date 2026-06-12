@@ -116,6 +116,7 @@ export class Engine {
     if (this.stepMode) return []; // step mode advances via tick(), not here
     const all = [];
     for (const b of this.balls) {
+      if (b.active === false) continue; // track disabled (the track-count dial)
       if (b.muted) continue; // a paused head freezes (its notes stay live for the other band)
       const face = this.surface.faceById(b.faceId);
       let acc = this._accel(face);
@@ -134,6 +135,7 @@ export class Engine {
     if (this.paused) return [];
     const all = [];
     for (const b of this.balls) {
+      if (b.active === false) continue; // track disabled (the track-count dial)
       if (b.muted) continue; // a paused head freezes (its notes stay live for the other band)
       b._stepAcc = (b._stepAcc || 0) + (b.rate || 1);
       let guard = 0;
@@ -323,10 +325,10 @@ export class Engine {
     const n = this.balls.length;
     for (let i = 0; i < n; i++) {
       const a = this.balls[i];
-      if (a.muted) continue;
+      if (a.active === false || a.muted) continue;
       for (let j = i + 1; j < n; j++) {
         const b = this.balls[j];
-        if (b.muted) continue;
+        if (b.active === false || b.muted) continue;
         if (a.faceId !== b.faceId) continue;
         if (Math.abs(a.x - b.x) > r || Math.abs(a.y - b.y) > r) continue;
         const key = i * n + j;

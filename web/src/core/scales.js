@@ -7,11 +7,20 @@
 // in the stack"), so the same armed cell sounds a different pitch depending on
 // which band's head reads it — like reading a score rotated 90°.
 
-// Semitone offsets within one octave for each scale type.
+// Semitone offsets within one octave for each scale type. All seven diatonic
+// MODES (the serious toolkit) plus the pentatonics and blues/chromatic for play.
 export const SCALES = {
-  major: [0, 2, 4, 5, 7, 9, 11],
-  minor: [0, 2, 3, 5, 7, 8, 10], // natural minor
+  major: [0, 2, 4, 5, 7, 9, 11], // ionian
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  minor: [0, 2, 3, 5, 7, 8, 10], // aeolian (natural minor)
+  locrian: [0, 1, 3, 5, 6, 8, 10],
   pentatonic: [0, 2, 4, 7, 9], // major pentatonic (no semitone clashes)
+  minPentatonic: [0, 3, 5, 7, 10],
+  blues: [0, 3, 5, 6, 7, 10],
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 };
 
 export const SCALE_NAMES = Object.keys(SCALES);
