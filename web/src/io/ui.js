@@ -1,0 +1,269 @@
+// io/ui.js
+//
+// The product face: a collapsible left panel (iPad-plugin style) with the
+// controls that used to live only on the keyboard. Pure DOM — it only TALKS to
+// the engine/view/audio/midi adapters, the core never sees it. The keyboard
+// shortcuts keep working; the panel just makes them visible and touchable.
+
+import { MELODIC, DRUMS, COLLISION_SOUNDS } from './audio.js';
+
+export class UIPanel {
+  constructor({ engine, view, audio, sequencer, midi, controls, flags }) {
+    this.engine = engine;
+    this.view = view;
+    this.audio = audio;
+    this.sequencer = sequencer;
+    this.midi = midi;
+    this.controls = controls;
+    this.flags = flags; // { noteSound, collisionSound } — read by main's router
+    this._build();
+    this.refresh();
+    // anything the pointer/keyboard changes elsewhere gets mirrored here
+    controls.onChange = () => this.refresh();
+  }
+
+  // ---- DOM scaffolding -----------------------------------------------------
+  _build() {
+    // hamburger toggle (always visible)
+    this.toggleBtn = el('button', 'ui-toggle', '☰');
+    this.toggleBtn.title = 'controls';
+    document.body.appendChild(this.toggleBtn);
+
+    this.panel = el('div', 'ui-panel');
+    document.body.appendChild(this.panel);
+    this.toggleBtn.addEventListener('click', () => {
+      this.panel.classList.toggle('open');
+      this.refresh();
+    });
+
+    this._buildTransport();
+    this._buildSound();
+    this._buildCube();
+    this._buildTracks();
+  }
+
+  _section(title) {
+    const s = el('div', 'ui-sec');
+    s.appendChild(el('div', 'ui-sec-title', title));
+    this.panel.appendChild(s);
+    return s;
+  }
+
+  // ---- Transport -----------------------------------------------------------
+  _buildTransport() {
+    const s = this._section('Transport');
+
+    const row1 = el('div', 'ui-row');
+    this.playBtn = button('Pause', () => {
+      this.engine.paused = !this.engine.paused;
+      this.refresh();
+    });
+    this.modeBtn = button('Step', () => {
+      this.engine.stepMode = !this.engine.stepMode;
+      this.refresh();
+    });
+    this.railBtn = button('Derail', () => {
+      this.engine.railed = !this.engine.railed;
+      this.refresh();
+    });
+    row1.append(this.playBtn, this.modeBtn, this.railBtn);
+    s.appendChild(row1);
+
+    const row2 = el('div', 'ui-row');
+    row2.appendChild(el('label', 'ui-label', 'BPM'));
+    this.bpmInput = el('input', 'ui-num');
+    this.bpmInput.type = 'number';
+    this.bpmInput.min = 20;
+    this.bpmInput.max = 400;
+    this.bpmInput.step = 5;
+    this.bpmInput.addEventListener('change', () => {
+      this.engine.bpm = Math.max(20, Math.min(400, +this.bpmInput.value || 120));
+      this.refresh();
+    });
+    row2.appendChild(this.bpmInput);
+    s.appendChild(row2);
+
+    const row3 = el('div', 'ui-row');
+    row3.append(
+      button('Align bar', () => {
+        this.engine.alignHeads();
+        this.controls.refreshMutes();
+      }),
+      button('Swap H↔V', () => {
+        this.engine.swapBands();
+        this.controls.refreshMutes(); // slices follow the new directions
+        this.refresh();
+      }),
+      button('Reset notes', () => {
+        this.sequencer.clear();
+        this.view.refreshArmedCells(this.sequencer);
+      }),
+    );
+    s.appendChild(row3);
+  }
+
+  // ---- Sound ----------------------------------------------------------------
+  _buildSound() {
+    const s = this._section('Sound');
+
+    this.noteChk = checkbox(s, 'Note sound', true, (on) => (this.flags.noteSound = on));
+    this.collChk = checkbox(s, 'Collision sound', true, (on) => (this.flags.collisionSound = on));
+
+    const rowC = el('div', 'ui-row');
+    rowC.appendChild(el('label', 'ui-label', 'Collision'));
+    this.collSel = el('select', 'ui-select');
+    COLLISION_SOUNDS.forEach((name, i) => this.collSel.appendChild(option(name, i)));
+    this.collSel.addEventListener('change', () => {
+      this.audio.collisionSound = +this.collSel.value;
+      this.audio.playCollision({}); // audition it
+    });
+    rowC.appendChild(this.collSel);
+    s.appendChild(rowC);
+
+    // MIDI out
+    this.midiChk = checkbox(s, 'MIDI out', false, async (on) => {
+      this.midi.enabled = on;
+      if (on && !this.midi.access) {
+        const outs = await this.midi.init();
+        this._fillMidiOutputs(outs);
+      }
+      this.refresh();
+    });
+    const rowM = el('div', 'ui-row');
+    rowM.appendChild(el('label', 'ui-label', 'Device'));
+    this.midiSel = el('select', 'ui-select');
+    this.midiSel.addEventListener('change', () => this.midi.selectOutput(this.midiSel.value));
+    rowM.appendChild(this.midiSel);
+    s.appendChild(rowM);
+
+    const rowCh = el('div', 'ui-row');
+    rowCh.appendChild(el('label', 'ui-label', 'Channel'));
+    this.chanSel = el('select', 'ui-select');
+    for (let c = 1; c <= 16; c++) this.chanSel.appendChild(option(String(c), c));
+    this.chanSel.addEventListener('change', () => (this.midi.channel = +this.chanSel.value));
+    rowCh.appendChild(this.chanSel);
+    s.appendChild(rowCh);
+  }
+
+  _fillMidiOutputs(outs) {
+    this.midiSel.innerHTML = '';
+    if (!outs.length) {
+      this.midiSel.appendChild(option('— no devices —', ''));
+      return;
+    }
+    for (const o of outs) this.midiSel.appendChild(option(o.name, o.id));
+    this.midi.selectOutput(outs[0].id);
+  }
+
+  // ---- Cube -----------------------------------------------------------------
+  _buildCube() {
+    const s = this._section('Cube');
+
+    const rowO = el('div', 'ui-row');
+    rowO.appendChild(el('label', 'ui-label', 'Opacity'));
+    this.opacityInput = el('input', 'ui-range');
+    this.opacityInput.type = 'range';
+    this.opacityInput.min = 0;
+    this.opacityInput.max = 1;
+    this.opacityInput.step = 0.01;
+    this.opacityInput.addEventListener('input', () => this.view.setCubeOpacity(+this.opacityInput.value));
+    rowO.appendChild(this.opacityInput);
+    s.appendChild(rowO);
+
+    const rowC = el('div', 'ui-row');
+    rowC.appendChild(el('label', 'ui-label', 'Colour'));
+    this.colorInput = el('input', 'ui-color');
+    this.colorInput.type = 'color';
+    this.colorInput.addEventListener('input', () => this.view.setCubeColor(this.colorInput.value));
+    rowC.appendChild(this.colorInput);
+    s.appendChild(rowC);
+  }
+
+  // ---- Tracks ---------------------------------------------------------------
+  _buildTracks() {
+    const s = this._section('Tracks');
+    this.trackRows = [];
+    this.engine.balls.forEach((ball, i) => {
+      const row = el('div', 'ui-track');
+
+      const dot = el('span', 'ui-dot');
+      dot.style.background = ball.color;
+      row.appendChild(dot);
+
+      row.appendChild(el('span', 'ui-kind', ball.kind === 'V' ? 'V' : 'H'));
+
+      const sel = el('select', 'ui-select ui-track-ins');
+      const gm = el('optgroup');
+      gm.label = 'Melodic';
+      MELODIC.forEach((ins, k) => gm.appendChild(option(ins.name, k)));
+      const gd = el('optgroup');
+      gd.label = 'Drums';
+      DRUMS.forEach((ins, k) => gd.appendChild(option(ins.name, MELODIC.length + k)));
+      sel.append(gm, gd);
+      sel.addEventListener('change', () => (ball.instrument = +sel.value));
+      row.appendChild(sel);
+
+      const pauseBtn = el('button', 'ui-btn ui-track-pause', '❚❚');
+      pauseBtn.title = 'pause/resume this track (same as clicking the head)';
+      pauseBtn.addEventListener('click', () => {
+        this.controls.toggleHeadPause(i);
+        this.refresh();
+      });
+      row.appendChild(pauseBtn);
+
+      s.appendChild(row);
+      this.trackRows.push({ row, sel, pauseBtn, kindEl: row.children[1] });
+    });
+  }
+
+  // ---- state mirror -----------------------------------------------------------
+  refresh() {
+    this.playBtn.textContent = this.engine.paused ? 'Play' : 'Pause';
+    this.modeBtn.textContent = this.engine.stepMode ? 'Continuous' : 'Step';
+    this.modeBtn.classList.toggle('on', this.engine.stepMode);
+    this.railBtn.textContent = this.engine.railed ? 'Derail' : 'Rail';
+    this.bpmInput.value = this.engine.bpm;
+    this.collSel.value = this.audio.collisionSound;
+    this.opacityInput.value = this.view.cubeOpacity;
+    this.colorInput.value = this.view.cubeColor;
+    this.chanSel.value = this.midi.channel;
+    this.midiSel.disabled = !this.midi.enabled;
+    this.chanSel.disabled = !this.midi.enabled;
+    this.engine.balls.forEach((ball, i) => {
+      const r = this.trackRows[i];
+      r.sel.value = ball.instrument;
+      r.kindEl.textContent = ball.kind === 'V' ? 'V' : 'H';
+      r.pauseBtn.textContent = ball.muted ? '▶' : '❚❚';
+      r.row.classList.toggle('muted', !!ball.muted);
+    });
+  }
+}
+
+// little DOM helpers
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function button(label, onClick) {
+  const b = el('button', 'ui-btn', label);
+  b.addEventListener('click', onClick);
+  return b;
+}
+function option(label, value) {
+  const o = document.createElement('option');
+  o.textContent = label;
+  o.value = value;
+  return o;
+}
+function checkbox(parent, label, init, onChange) {
+  const row = el('label', 'ui-row ui-check');
+  const c = document.createElement('input');
+  c.type = 'checkbox';
+  c.checked = init;
+  c.addEventListener('change', () => onChange(c.checked));
+  row.append(c, el('span', null, label));
+  parent.appendChild(row);
+  return c;
+}

@@ -26,6 +26,10 @@ export class Sequencer {
     this.bandV = bandV || new Band({ name: 'transversal', scale: 'pentatonic', root: 57 }); // A
     // armed cells: Set of "faceId:i:j"
     this.armed = new Set();
+    // cells silenced because they sit on a MUTED track's slice. Muting a
+    // horizontal track also silences those cells for vertical heads (and vice
+    // versa) — the whole slice is off, regardless of reading direction.
+    this.mutedCells = new Set();
   }
 
   // ---- score editing ----
@@ -54,6 +58,18 @@ export class Sequencer {
     this.armed.clear();
   }
 
+  // Rebuild the muted-cell set from the slices of the currently muted tracks
+  // (engine.traceTrack provides each slice's ring of cells).
+  setMutedSlices(slices) {
+    this.mutedCells.clear();
+    for (const cells of slices) {
+      for (const c of cells) this.mutedCells.add(this.key(c.faceId, c.i, c.j));
+    }
+  }
+  isMutedCell(faceId, i, j) {
+    return this.mutedCells.has(this.key(faceId, i, j));
+  }
+
   // The band a head belongs to.
   bandFor(ball) {
     return ball.kind === 'V' ? this.bandV : this.bandH;
@@ -64,6 +80,7 @@ export class Sequencer {
   noteForEnter(event) {
     const { ball, faceId, i, j } = event;
     if (!this.isArmed(faceId, i, j)) return null;
+    if (this.mutedCells.has(this.key(faceId, i, j))) return null; // slice is off
     // moving along x -> perpendicular level is the row j; moving along y -> col i.
     const level = ball.movingAxis() === 'x' ? j : i;
     const midi = this.bandFor(ball).midiForLevel(level);

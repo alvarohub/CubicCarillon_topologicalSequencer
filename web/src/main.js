@@ -6,6 +6,8 @@ import { Engine } from './core/engine.js';
 import { Sequencer } from './core/sequencer.js';
 import { AudioOut } from './io/audio.js';
 import { Controls } from './io/controls.js';
+import { MidiOut } from './io/midi.js';
+import { UIPanel } from './io/ui.js';
 import { View3D } from './view/view3d.js';
 
 // ---- model ----
@@ -86,18 +88,22 @@ sequencer.seedDefaultPattern(); // so the cube sings on first run
 
 // ---- adapters ----
 const audio = new AudioOut();
+const midi = new MidiOut();
 const view = new View3D(surface, balls, document.getElementById('app'), { cells: CELLS });
 view.refreshArmedCells(sequencer); // draw the initial score
 const statusEl = document.getElementById('status');
 const setStatus = (t) => {
   if (statusEl) statusEl.textContent = t;
 };
-new Controls({ engine, view, audio, sequencer, startButtonId: 'start', statusFn: setStatus });
+const controls = new Controls({ engine, view, audio, sequencer, startButtonId: 'start', statusFn: setStatus });
+// sound routing flags (toggled from the panel)
+const flags = { noteSound: true, collisionSound: true };
+const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags });
 
 // Optional debug hook (only when ?debug is in the URL): exposes the live objects
 // on window for inspection/automated UI tests. Never active in normal use.
 if (location.search.includes('debug')) {
-  window.__cube = { engine, view, sequencer, balls };
+  window.__cube = { engine, view, sequencer, balls, controls, midi, ui, flags };
 }
 
 // ---- loop ----
@@ -110,7 +116,8 @@ let stepAcc = 0; // step-mode beat accumulator (seconds)
 function handleEnter(ev) {
   const note = sequencer.noteForEnter(ev);
   if (!note) return;
-  audio.play(note);
+  if (flags.noteSound) audio.play(note);
+  if (midi.enabled) midi.note(note); // mirror to real synths
   view.flash(ev.ball); // the reading head pulses brighter (brightness only, not hue)
   view.strikeCell(ev.faceId, ev.i, ev.j); // flash the armed pad
 }
@@ -135,12 +142,15 @@ function frame(now) {
     for (const ev of engine.update(dt)) handleEnter(ev);
   }
 
-  // head intersections -> a drum hit (the non-Euclidean "collision" voice)
+  // head intersections -> a percussive hit (the non-Euclidean "collision" voice)
   for (const ev of engine.collisions()) {
     view.flash(ev.a);
     view.flash(ev.b);
     const note = sequencer.noteForCollision(ev);
-    if (note) audio.playDrum(note);
+    if (note) {
+      if (flags.collisionSound) audio.playCollision(note);
+      if (midi.enabled) midi.collision(note);
+    }
   }
 
   view.sync(now);

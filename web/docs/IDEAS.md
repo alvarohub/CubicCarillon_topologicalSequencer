@@ -324,3 +324,56 @@ head's pitch comes from its row, a _transversal_ head's from its column. So the
 SAME armed cell sounds a **different pitch depending on which type of head reads
 it** — like reading a musical score that has been rotated 90°. Each band has its
 own **scale + key** (major / minor / pentatonic for now).
+
+---
+
+## 13. ⭐ Collision = MATERIAL × MATERIAL (the sound of stone hitting wood)
+
+**Status: idea, possibly a standalone toy.** A head-on-head collision is a PAIR
+of instruments — with 8 heads there's a whole **matrix of collision pairs**. The
+weird-and-wonderful version: give each head a **material** (stone, wood, glass,
+metal, felt...) and make the collision sound be a **sample of those two materials
+physically hitting each other** — stone-on-wood, glass-on-metal... A "what does
+it sound like when X hits Y" matrix. This alone, with no sequencer at all, could
+be a fun instrument: little materials orbiting a cube, clacking into each other.
+(For now: a single selectable collision sound from a small menu.)
+
+## 14. Whole cube as a lamp (global flash on sound)
+
+**Status: idea.** When any sound fires (note or collision), the whole cube body
+could brighten for an instant — the object itself is the VU meter / beacon. On
+the physical LED cube this is free (flash all LEDs); in three.js just pulse the
+face material emissive. Needs taste: maybe only collisions, or intensity ∝ velocity.
+
+## 15. ⭐ Growable cube — start at 1×1×1 and add slices
+
+**Status: idea, conceptually lovely.** Muting a track "disables a slice" of the
+cube. Take it literally: a muted slice could **vanish and the cube shorten** —
+and conversely you could START with a 1×1×1 cube (one cell per face!) and **add
+layers** one at a time, growing the instrument as the piece grows. Composition as
+_constructing the world the music lives on_. Geometrically this makes the surface
+a box of varying proportions (atlas already supports rectangular faces in
+principle). Probably unusable, definitely worth trying.
+
+## 16. Per-note velocity — interface sketches (open question)
+
+**Status: thinking.** Velocity/attack are PER NOTE, but clicking each note to set
+parameters is tedious. The physical dream: a **knob embedded in every facet**
+(clickable to arm, turnable for velocity). GUI candidates, to pick from later:
+
+- **Press-and-drag vertical**: tap arms the note; holding + dragging up/down sets
+  velocity. Pad brightness/size encodes it (bright=loud). One gesture, no menu.
+- **Tap cycles levels**: repeated taps cycle off → soft → med → loud → off.
+  Dead simple on iPad, only 3 levels but sequencers thrived on that for decades.
+- **Paint mode**: a velocity "brush" (slider sets the value, then you paint cells).
+  Good for shaping whole phrases at once.
+- **Tilt-as-pressure**: while holding a note, tilting the cube/phone sets the
+  velocity — uses the sensor we already have, very "instrument-like".
+
+## 17. Head = 3D model of its instrument floating above the track
+
+**Status: idea.** The head square could become (or carry) a tiny **3D model of
+its instrument** — a little drum, a bell, a stone — floating just above the
+surface, riding the rail. The square on the surface stays as the "read cursor"
+(translucent), the floating model is the identity. Pairs beautifully with the
+materials idea (§13) and the cast-shadow idea (§6a).

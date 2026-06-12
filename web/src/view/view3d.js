@@ -53,7 +53,9 @@ export class View3D {
     this._buildCubeMesh();
     this._buildGrid();
     this._buildArmedCells();
+    this._buildMutedCells();
     this._buildHeadMeshes();
+    this._buildGizmo();
     this._wireDrag();
 
     // picking (click a head -> instrument menu; click a cell -> toggle the score)
@@ -91,13 +93,16 @@ export class View3D {
     // over) + adjustable translucency. Opacity is a live control (setCubeOpacity)
     // so the cube can range from clear acrylic to fully opaque. depthWrite stays
     // off while translucent so the light-emitting heads inside show through.
+    // Body colour is a live control too (setCubeColor); default a very dark red,
+    // so the white note pads read like ivory keys on dark lacquer.
     this.cubeOpacity = 0.28;
+    this.cubeColor = '#3a0a0a';
     this.faceMats = [];
     this.faceMeshes = [];
     for (const f of this.surface.faces) {
       const geo = new THREE.PlaneGeometry(s, s);
       const mat = new THREE.MeshPhysicalMaterial({
-        color: 0x9fc4e8,
+        color: new THREE.Color(this.cubeColor),
         metalness: 0.0,
         roughness: 0.18,
         clearcoat: 1.0,
@@ -144,6 +149,13 @@ export class View3D {
     return this.cubeOpacity;
   }
 
+  // Live control: the cube body colour (hex string from the UI colour picker).
+  setCubeColor(hex) {
+    this.cubeColor = hex;
+    const c = new THREE.Color(hex);
+    for (const m of this.faceMats) m.color.copy(c);
+  }
+
   // The cell grid on every face: the flat coordinate frame / step-button matrix.
   _buildGrid() {
     const positions = [];
@@ -162,15 +174,60 @@ export class View3D {
     this.shellGroup.add(new THREE.LineSegments(geo, mat));
   }
 
-  // The SCORE: armed cells drawn as dim glowing pads on the surface (on the body
-  // shell, so they line up with the grid). They brighten briefly when a head
-  // strikes them. Meshes are (re)built whenever the armed set changes — the set
-  // is small (<= 6 * cells^2), so a rebuild on edit is cheap and simple.
+  // The SCORE: armed cells drawn as dim WHITE pads on the surface — piano-key
+  // white on the dark body; off cells are simply the dark face. A pad flares
+  // bright when a head strikes it. Pads sit a hair above the face along the
+  // normal (PAD_LIFT) so they never z-fight the body even at full opacity.
+  // Meshes are (re)built whenever the armed set changes — the set is small
+  // (<= 6 * cells^2), so a rebuild on edit is cheap and simple.
   _buildArmedCells() {
     this.armedGroup = new THREE.Group();
     this.shellGroup.add(this.armedGroup);
-    this._armedMeshes = new Map(); // "faceId:i:j" -> mesh
-    this._armedBaseGlow = 0.45;
+    this._armedMeshes = new Map(); // "faceId:i:j" -> filled pad mesh
+    this._armedOutlines = new Map(); // "faceId:i:j" -> contour (muted slice)
+    this._armedBaseGlow = 0.5;
+    this._PAD_LIFT = 0.006; // above the muted strips, above the face
+    this._MUTE_LIFT = 0.003;
+  }
+
+  // Dark translucent strips marking MUTED slices (the cells of a muted track's
+  // ring). Armed cells inside them are drawn as contour-only by refreshArmedCells.
+  _buildMutedCells() {
+    this.mutedGroup = new THREE.Group();
+    this.shellGroup.add(this.mutedGroup);
+    this._mutedMeshes = [];
+  }
+
+  refreshMutedCells(mutedKeys) {
+    for (const mesh of this._mutedMeshes) {
+      this.mutedGroup.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
+    this._mutedMeshes = [];
+    const cell = this.surface.faces[0].size / this.cells;
+    for (const keyStr of mutedKeys) {
+      const [fStr, iStr, jStr] = keyStr.split(':');
+      const faceId = +fStr,
+        i = +iStr,
+        j = +jStr;
+      const f = this.surface.faceById(faceId);
+      const half = f.size / 2;
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.45,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+      mesh.matrixAutoUpdate = false;
+      const x0 = -half + i * cell,
+        y0 = -half + j * cell;
+      this._placeRect(mesh, { faceId, x0, x1: x0 + cell, y0, y1: y0 + cell }, this._MUTE_LIFT);
+      this.mutedGroup.add(mesh);
+      this._mutedMeshes.push(mesh);
+    }
   }
 
   refreshArmedCells(sequencer) {
@@ -181,6 +238,12 @@ export class View3D {
       mesh.material.dispose();
     }
     this._armedMeshes.clear();
+    for (const line of this._armedOutlines.values()) {
+      this.armedGroup.remove(line);
+      line.geometry.dispose();
+      line.material.dispose();
+    }
+    this._armedOutlines.clear();
 
     const cell = this.surface.faces[0].size / this.cells;
     const pad = cell * 0.78; // pad size (a little smaller than the cell)
@@ -193,22 +256,37 @@ export class View3D {
       const half = f.size / 2;
       const cx = -half + (i + 0.5) * cell;
       const cy = -half + (j + 0.5) * cell;
+      const rect = { faceId, x0: cx - pad / 2, x1: cx + pad / 2, y0: cy - pad / 2, y1: cy + pad / 2 };
+
+      if (sequencer.mutedCells && sequencer.mutedCells.has(keyStr)) {
+        // armed-but-muted: contour only (the note is remembered, not sounding)
+        const pts = new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+        const line = new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color: 0xbbbbbb, transparent: true, opacity: 0.6 }));
+        line.matrixAutoUpdate = false;
+        this._placeRect(line, rect, this._PAD_LIFT);
+        this.armedGroup.add(line);
+        this._armedOutlines.set(keyStr, line);
+        continue;
+      }
+
       const geo = new THREE.PlaneGeometry(1, 1);
       const mat = new THREE.MeshStandardMaterial({
         color: 0x000000,
-        emissive: new THREE.Color(0x2f8fff),
+        emissive: new THREE.Color(0xffffff),
         emissiveIntensity: this._armedBaseGlow,
         roughness: 0.6,
         metalness: 0.0,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.92,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
       mesh.userData = { cellKey: keyStr };
-      this._placeRect(mesh, { faceId, x0: cx - pad / 2, x1: cx + pad / 2, y0: cy - pad / 2, y1: cy + pad / 2 }, 0);
+      this._placeRect(mesh, rect, this._PAD_LIFT);
       this.armedGroup.add(mesh);
       this._armedMeshes.set(keyStr, mesh);
     }
@@ -286,7 +364,8 @@ export class View3D {
           roughness: 0.5,
           metalness: 0.0,
           transparent: true,
-          opacity: 0.96,
+          opacity: 0.5, // translucent: the score shows THROUGH the reading head
+          depthWrite: false,
           side: THREE.DoubleSide,
         });
         const mesh = new THREE.Mesh(geo, mat);
@@ -401,41 +480,59 @@ export class View3D {
   // pointer drag rotates the cube (on a phone the device orientation takes over).
   // A short tap that barely moves is treated as a CLICK and routed to pickHandler
   // (so the same pointer both rotates and selects, like a trackball + pick).
+  // Releasing a drag mid-motion leaves the cube SPINNING with inertia (damped in
+  // sync()); grabbing it again stops it — a real trackball feel.
   _wireDrag() {
     const el = this.renderer.domElement;
-    let dragging = false,
-      px = 0,
+    el.addEventListener('contextmenu', (e) => e.preventDefault()); // right-click is OURS (head menu)
+    this._dragging = false;
+    this._spinX = 0; // rad/s, applied + damped in sync()
+    this._spinY = 0;
+    let px = 0,
       py = 0,
       downX = 0,
       downY = 0,
       downT = 0,
-      moved = 0;
+      moved = 0,
+      lastMove = 0,
+      downButton = 0;
     el.addEventListener('pointerdown', (e) => {
-      dragging = true;
+      this._dragging = true;
+      downButton = e.button;
+      this._spinX = this._spinY = 0; // grabbing the cube stops it
       px = downX = e.clientX;
       py = downY = e.clientY;
-      downT = performance.now();
+      downT = lastMove = performance.now();
       moved = 0;
     });
     window.addEventListener('pointerup', (e) => {
-      if (dragging) {
+      if (this._dragging) {
         const dt = performance.now() - downT;
         if (moved < 6 && dt < 350 && this.pickHandler) {
           const res = this.pick(e.clientX, e.clientY);
           if (res) this.pickHandler(res, e);
         }
+        // if the pointer paused before release, don't fling
+        if (performance.now() - lastMove > 80) this._spinX = this._spinY = 0;
       }
-      dragging = false;
+      this._dragging = false;
     });
     window.addEventListener('pointermove', (e) => {
-      if (!dragging || this._useDeviceOrientation) return;
+      if (!this._dragging || this._useDeviceOrientation) return;
+      const nowT = performance.now();
       const dx = e.clientX - px,
         dy = e.clientY - py;
       px = e.clientX;
       py = e.clientY;
       moved += Math.abs(dx) + Math.abs(dy);
+      if (downButton !== 0) return; // only the primary button rotates the cube
       this.cubeGroup.rotation.y += dx * 0.01;
       this.cubeGroup.rotation.x += dy * 0.01;
+      // instantaneous angular velocity, lightly smoothed, for the release fling
+      const dtm = Math.max(1, nowT - lastMove);
+      lastMove = nowT;
+      this._spinY = 0.7 * this._spinY + 0.3 * ((dx * 0.01 * 1000) / dtm);
+      this._spinX = 0.7 * this._spinX + 0.3 * ((dy * 0.01 * 1000) / dtm);
     });
   }
 
@@ -463,6 +560,18 @@ export class View3D {
 
   // read head state from the core and update the square meshes
   sync(now) {
+    // rotation inertia: keep spinning after a flick, damped exponentially
+    if (this._lastSync == null) this._lastSync = now;
+    const dts = Math.min(0.1, (now - this._lastSync) / 1000);
+    this._lastSync = now;
+    if (!this._dragging && !this._useDeviceOrientation && (Math.abs(this._spinX) > 1e-4 || Math.abs(this._spinY) > 1e-4)) {
+      this.cubeGroup.rotation.y += this._spinY * dts;
+      this.cubeGroup.rotation.x += this._spinX * dts;
+      const damp = Math.exp(-1.8 * dts);
+      this._spinX *= damp;
+      this._spinY *= damp;
+    }
+
     // flash struck armed pads (brightness pulse over 200ms)
     for (const [key, mesh] of this._armedMeshes) {
       const t = this._struck.get(key);
@@ -475,9 +584,9 @@ export class View3D {
       const dt = now - b.flash;
       const k = dt < 220 ? 1 - dt / 220 : 0; // hit pulse 1 -> 0
       // A hit pulses BRIGHTNESS only (the head flares like a struck LED); its
-      // colour — the instrument identity — never changes. The square also stays
-      // exactly one cell (no growth that would poke back past the folded edge).
-      const glow = this._headGlow + k * 1.8;
+      // colour — the instrument identity — never changes. A PAUSED (muted) head
+      // goes dim: still visible on its track, clearly asleep.
+      const glow = b.muted ? 0.12 : this._headGlow + k * 1.8;
       const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
       for (let k2 = 0; k2 < pool.length; k2++) {
         const mesh = pool[k2];
@@ -491,13 +600,46 @@ export class View3D {
     }
   }
 
+  // A small "which way is the cube facing" gizmo: the cube's own axes + a faint
+  // wire cube, rendered in a corner viewport, following cubeGroup's rotation.
+  _buildGizmo() {
+    this._gizmoScene = new THREE.Scene();
+    this._gizmoCam = new THREE.PerspectiveCamera(40, 1, 0.1, 10);
+    this._gizmoCam.position.set(0, 0, 3.4);
+    this._gizmoGroup = new THREE.Group();
+    this._gizmoGroup.add(new THREE.AxesHelper(1.0)); // x red, y green, z blue
+    const wire = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1.1, 1.1, 1.1)),
+      new THREE.LineBasicMaterial({ color: 0x3a4a60, transparent: true, opacity: 0.8 }),
+    );
+    this._gizmoGroup.add(wire);
+    this._gizmoScene.add(this._gizmoGroup);
+  }
+
   render() {
-    this.renderer.render(this.scene, this.camera);
+    const r = this.renderer;
+    r.setScissorTest(false);
+    r.setViewport(0, 0, this._w, this._h);
+    r.render(this.scene, this.camera);
+
+    // corner gizmo (bottom-right), drawn on top with its own depth
+    const s = 92,
+      m = 10;
+    this._gizmoGroup.quaternion.copy(this.cubeGroup.quaternion);
+    r.clearDepth();
+    r.setScissorTest(true);
+    r.setScissor(this._w - s - m, m, s, s);
+    r.setViewport(this._w - s - m, m, s, s);
+    r.render(this._gizmoScene, this._gizmoCam);
+    r.setScissorTest(false);
+    r.setViewport(0, 0, this._w, this._h);
   }
 
   _onResize() {
     const w = window.innerWidth,
       h = window.innerHeight;
+    this._w = w;
+    this._h = h;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);

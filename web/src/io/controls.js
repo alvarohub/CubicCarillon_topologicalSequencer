@@ -5,7 +5,8 @@
 //
 //   - keyboard:    Space pause · g gravity · m step/continuous · r rail/derail
 //                  · a align bar · + / - BPM · [ ] cube opacity
-//   - pointer tap: click a HEAD -> instrument menu · click a CELL -> toggle score
+//   - pointer tap: click a HEAD -> pause/unpause its track · right-click a HEAD
+//                  -> instrument menu · click a CELL -> toggle score
 //   - phone:       deviceorientation -> cube orientation + gravity ("tilt to roll")
 //   - start button: unlocks audio + requests motion permission (iOS)
 //
@@ -21,10 +22,15 @@ export class Controls {
     this.audio = audio;
     this.sequencer = sequencer;
     this.statusFn = statusFn || (() => {});
+    this.onChange = null; // optional: UI panel mirror, called after any state change
     this._menu = null;
     this._wireKeyboard();
     this._wirePicking();
     this._wireStart(startButtonId);
+  }
+
+  _notify() {
+    this.onChange?.();
   }
 
   _wireKeyboard() {
@@ -55,10 +61,15 @@ export class Controls {
         const v = this.view.adjustCubeOpacity(e.key === ']' ? 0.08 : -0.08);
         this.statusFn(`cube opacity ${v.toFixed(2)}`);
       }
+      this._notify();
     });
   }
 
-  // route taps from the view's raycaster: head -> instrument menu, cell -> toggle
+  // route taps from the view's raycaster:
+  //   cell        -> toggle the score
+  //   head CLICK  -> pause/unpause that head (its whole slice mutes — the head
+  //                  IS the track's on/off switch)
+  //   head RIGHT-CLICK -> instrument menu
   _wirePicking() {
     this.view.pickHandler = (res, ev) => {
       if (res.type === 'cell') {
@@ -66,9 +77,32 @@ export class Controls {
         this.view.refreshArmedCells(this.sequencer);
         this.statusFn(`cell ${res.faceId}:${res.i}:${res.j} ${on ? 'armed' : 'off'}`);
       } else if (res.type === 'head') {
-        this._openInstrumentMenu(res.index, ev.clientX, ev.clientY);
+        if (ev.button === 2) {
+          this._openInstrumentMenu(res.index, ev.clientX, ev.clientY);
+        } else {
+          this.toggleHeadPause(res.index);
+        }
       }
     };
+  }
+
+  // Pause/unpause one head. A paused head stops moving AND its slice goes
+  // silent for every head (the cells it patrols are muted in both directions).
+  toggleHeadPause(index) {
+    const ball = this.engine.balls[index];
+    ball.muted = !ball.muted;
+    this.refreshMutes();
+    this.statusFn(`head ${index} ${ball.muted ? 'paused (track muted)' : 'running'}`);
+    this._notify();
+  }
+
+  // Recompute the muted slices from the currently paused heads and push the
+  // result to the sequencer (silence) and the view (dark strips + contours).
+  refreshMutes() {
+    const slices = this.engine.balls.filter((b) => b.muted).map((b) => this.engine.traceTrack(b));
+    this.sequencer.setMutedSlices(slices);
+    this.view.refreshMutedCells(this.sequencer.mutedCells);
+    this.view.refreshArmedCells(this.sequencer);
   }
 
   _openInstrumentMenu(headIndex, x, y) {
@@ -80,7 +114,15 @@ export class Controls {
     title.className = 'imenu-title';
     title.textContent = `head ${headIndex} (${ball.kind === 'V' ? 'transversal' : 'horizontal'})`;
     menu.appendChild(title);
+    let lastType = null;
     INSTRUMENTS.forEach((ins, idx) => {
+      if (ins.type !== lastType) {
+        lastType = ins.type;
+        const sec = document.createElement('div');
+        sec.className = 'imenu-sec';
+        sec.textContent = ins.type === 'drum' ? 'drums' : 'melodic';
+        menu.appendChild(sec);
+      }
       const item = document.createElement('div');
       item.className = 'imenu-item' + (idx === ball.instrument ? ' sel' : '');
       item.textContent = ins.name;
@@ -89,6 +131,7 @@ export class Controls {
         ball.instrument = idx;
         this.statusFn(`head ${headIndex} → ${ins.name}`);
         this._closeMenu();
+        this._notify();
       });
       menu.appendChild(item);
     });

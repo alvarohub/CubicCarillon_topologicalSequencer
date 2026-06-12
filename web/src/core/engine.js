@@ -115,6 +115,7 @@ export class Engine {
     if (this.stepMode) return []; // step mode advances via tick(), not here
     const all = [];
     for (const b of this.balls) {
+      if (b.muted) continue; // a muted track's head freezes (its slice is off)
       const face = this.surface.faceById(b.faceId);
       let acc = this._accel(face);
       if (this.railed) acc = this._railProject(b, acc);
@@ -131,6 +132,7 @@ export class Engine {
     if (this.paused) return [];
     const all = [];
     for (const b of this.balls) {
+      if (b.muted) continue; // a muted track's head freezes (its slice is off)
       const face = this.surface.faceById(b.faceId);
       const cell = this._cellSize(face);
 
@@ -198,6 +200,66 @@ export class Engine {
     }
   }
 
+  // Swap EVERY head's band: horizontal ↔ transversal. Positions stay put but the
+  // velocity flips to the perpendicular axis, so the whole cube is suddenly read
+  // the other way — same score, rotated reading. (Pitch now comes from the other
+  // coordinate too, since pitch = the perpendicular level.)
+  swapBands() {
+    for (const b of this.balls) {
+      b.kind = b.kind === 'V' ? 'H' : 'V';
+      const t = b.vx;
+      b.vx = b.vy;
+      b.vy = t;
+      b.cellFace = -1; // re-arm cell tracking
+      b.cellI = -1;
+      b.cellJ = -1;
+    }
+  }
+
+  // Trace the ring of cells a head's RAIL passes through (its "slice" of the
+  // cube): walk a probe one cell at a time from the head's current cell until it
+  // loops (4 faces × cells steps on a cube). Used for muting a whole slice and
+  // for drawing it. Returns an array of { faceId, i, j }.
+  traceTrack(ball) {
+    const probe = {
+      faceId: ball.faceId,
+      x: ball.x,
+      y: ball.y,
+      vx: ball.vx,
+      vy: ball.vy,
+      kind: ball.kind,
+    };
+    // normalise direction; default along band if stalled
+    let sp = Math.hypot(probe.vx, probe.vy);
+    if (sp < 1e-9) {
+      probe.vx = probe.kind === 'V' ? 0 : 1;
+      probe.vy = probe.kind === 'V' ? 1 : 0;
+      sp = 1;
+    }
+    const cells = [];
+    const seen = new Set();
+    const maxSteps = 4 * this.cells + 2;
+    const b = Object.assign(Object.create(Object.getPrototypeOf(ball)), ball); // shallow Ball clone
+    b.vx = probe.vx / sp;
+    b.vy = probe.vy / sp;
+    if (this.railed) this._railProject(b, null);
+    for (let s = 0; s < maxSteps; s++) {
+      const face = this.surface.faceById(b.faceId);
+      const i = this._cellIndex(b.x, face);
+      const j = this._cellIndex(b.y, face);
+      const key = `${b.faceId}:${i}:${j}`;
+      if (seen.has(key)) break; // looped — the ring is closed
+      seen.add(key);
+      cells.push({ faceId: b.faceId, i, j });
+      b.step(this.surface, this._cellSize(face), null, 0, Infinity);
+      this._snapToCell(b);
+      const u = Math.hypot(b.vx, b.vy) || 1;
+      b.vx /= u;
+      b.vy /= u;
+    }
+    return cells;
+  }
+
   // Detect heads sharing a cell. Fires ONCE per encounter (when a pair first
   // overlaps), so a single crossing of two reading-heads is one musical event.
   // Returns a list of { type:'collision', a, b } for newly-formed overlaps.
@@ -208,8 +270,10 @@ export class Engine {
     const n = this.balls.length;
     for (let i = 0; i < n; i++) {
       const a = this.balls[i];
+      if (a.muted) continue;
       for (let j = i + 1; j < n; j++) {
         const b = this.balls[j];
+        if (b.muted) continue;
         if (a.faceId !== b.faceId) continue;
         if (Math.abs(a.x - b.x) > r || Math.abs(a.y - b.y) > r) continue;
         const key = i * n + j;

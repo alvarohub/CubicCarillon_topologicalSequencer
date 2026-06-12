@@ -30,6 +30,7 @@ export class Ball {
     // alignment, and which coordinate gives the pitch.
     this.kind = kind;
     this.instrument = instrument; // index into the instrument list (the sound)
+    this.muted = false; // a muted head freezes and silences its whole slice
     this.flash = 0; // timestamp of last event, for renderers (not used by core math)
     // last grid cell the head occupied, for emitting "entered a new cell" events
     // (this unifies "edge tick" and "cell tick": a head sounds when it enters an
