@@ -132,11 +132,11 @@ export class View3D {
   }
 
   // Live control: dial the cube from clear acrylic (0) to fully opaque (1).
-  // Near 1 we switch to an opaque, depth-writing material so back faces occlude
-  // properly instead of blending.
+  // The transition is GRADUAL all the way: the material only flips to the
+  // opaque render path at exactly 1, so there's no sudden "snap" near the top.
   setCubeOpacity(v) {
     this.cubeOpacity = Math.max(0, Math.min(1, v));
-    const solid = this.cubeOpacity > 0.96;
+    const solid = this.cubeOpacity >= 0.999;
     for (const m of this.faceMats) {
       m.opacity = this.cubeOpacity;
       m.transparent = !solid;
@@ -146,9 +146,10 @@ export class View3D {
     if (this.facetMat) {
       // the facet tiles follow the same translucency dial (so the fireflies
       // can glow through them), but never go fully invisible
-      this.facetMat.opacity = this._facetOpacity();
-      this.facetMat.transparent = !solid;
-      this.facetMat.depthWrite = solid;
+      const fo = this._facetOpacity();
+      this.facetMat.opacity = fo;
+      this.facetMat.transparent = fo < 0.999;
+      this.facetMat.depthWrite = fo >= 0.999;
       this.facetMat.needsUpdate = true;
     }
   }
@@ -356,14 +357,22 @@ export class View3D {
       side: THREE.DoubleSide,
       depthWrite: false,
     });
-    this.facets = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), this.facetMat, this._facetCount);
-    this.facets.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // ONE InstancedMesh PER FACE (not one for the whole cube): three.js depth-
+    // sorts transparent OBJECTS, never instances, so with a single mesh the far
+    // faces could blend on top of the near ones (the "messy overlap" artefact).
+    // Six small meshes let the renderer draw back-to-front per face.
+    this.facets = this.surface.faces.map((f, fi) => {
+      const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), this.facetMat, n * n);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.userData = { pick: 'facets', faceIdx: fi };
+      this.shellGroup.add(m);
+      return m;
+    });
     this._facetBase = new Array(this._facetCount); // id -> { m: Matrix4, n: normal, key }
     this._facetSeq = null; // last sequencer seen, for re-colouring
     this._struckIds = new Set(); // tiles flashed/popped last frame (to restore)
     this._tmpCol = new THREE.Color();
     this._tmpMat = new THREE.Matrix4();
-    this.shellGroup.add(this.facets);
     this._rebuildFacetMatrices();
     this._refreshFacetColors();
     this._applySurfaceStyle();
@@ -379,6 +388,24 @@ export class View3D {
     const fi = this._faceIndex.get(f);
     if (fi == null) return null;
     return fi * this.cells * this.cells + j * this.cells + i;
+  }
+
+  // global tile id -> the per-face mesh + its local instance index
+  _facetAt(id) {
+    const per = this.cells * this.cells;
+    return { mesh: this.facets[Math.floor(id / per)], local: id % per };
+  }
+
+  _facetSetColor(id, col) {
+    const { mesh, local } = this._facetAt(id);
+    mesh.setColorAt(local, col);
+    mesh.instanceColor.needsUpdate = true;
+  }
+
+  _facetSetMatrix(id, m) {
+    const { mesh, local } = this._facetAt(id);
+    mesh.setMatrixAt(local, m);
+    mesh.instanceMatrix.needsUpdate = true;
   }
 
   _rebuildFacetMatrices() {
@@ -417,11 +444,11 @@ export class View3D {
           );
           const id = fi * n * n + j * n + i;
           this._facetBase[id] = { m, n: nn, key: `${f.id}:${i}:${j}` };
-          this.facets.setMatrixAt(id, m);
+          this.facets[fi].setMatrixAt(j * n + i, m);
         }
       }
     }
-    this.facets.instanceMatrix.needsUpdate = true;
+    for (const mesh of this.facets) mesh.instanceMatrix.needsUpdate = true;
   }
 
   // a tile's resting colour: body colour if silent, greyish-white scaled by the
@@ -435,8 +462,7 @@ export class View3D {
 
   _refreshFacetColors(sequencer) {
     if (sequencer) this._facetSeq = sequencer;
-    for (let id = 0; id < this._facetCount; id++) this.facets.setColorAt(id, this._facetColorFor(id));
-    this.facets.instanceColor.needsUpdate = true;
+    for (let id = 0; id < this._facetCount; id++) this._facetSetColor(id, this._facetColorFor(id));
   }
 
   // Surface look: 'grid' (acrylic body + grid lines + glowing pads), 'facets'
@@ -449,7 +475,7 @@ export class View3D {
   _applySurfaceStyle() {
     const facetsOn = this.surfaceStyle !== 'grid';
     const bodyOn = this.surfaceStyle !== 'facets';
-    this.facets.visible = facetsOn;
+    for (const m of this.facets) m.visible = facetsOn;
     for (const m of this.faceMeshes) m.visible = bodyOn;
     this.gridLines.visible = this.surfaceStyle === 'grid';
     this.armedGroup.visible = this.surfaceStyle === 'grid';
@@ -480,11 +506,10 @@ export class View3D {
       mesh.userData.baseGlow = this._padGlow(v);
       mesh.material.emissiveIntensity = mesh.userData.baseGlow;
     }
-    if (this.facets && this.facets.visible) {
+    if (this.facets && this.facets[0].visible) {
       const id = this._facetIdFromKey(keyStr);
       if (id != null) {
-        this.facets.setColorAt(id, this._tmpCol.copy(this._padColor).multiplyScalar(0.3 + v * 0.7));
-        this.facets.instanceColor.needsUpdate = true;
+        this._facetSetColor(id, this._tmpCol.copy(this._padColor).multiplyScalar(0.3 + v * 0.7));
       }
     }
   }
@@ -497,6 +522,7 @@ export class View3D {
     this.headInners[index].material.emissive.copy(c);
     this.headRings[index].material.color.copy(c);
     this.headLights[index].color.copy(c);
+    this.headLightsMirror[index].color.copy(c);
   }
 
   // Raycast pick at screen coords. Heads take priority over cells. Returns one of
@@ -520,14 +546,14 @@ export class View3D {
     if (hHit.length) return { type: 'head', index: hHit[0].object.userData.index };
 
     // facet tiles (when the facet body is on, the tiles ARE the buttons)
-    if (this.facets.visible) {
-      const tHit = this._ray.intersectObject(this.facets, false);
+    if (this.facets[0].visible) {
+      const tHit = this._ray.intersectObjects(this.facets, false);
       if (tHit.length) {
-        const id = tHit[0].instanceId;
+        const hit = tHit[0];
+        const fi = hit.object.userData.faceIdx;
+        const local = hit.instanceId;
         const n = this.cells;
-        const fi = Math.floor(id / (n * n));
-        const rem = id - fi * n * n;
-        return { type: 'cell', faceId: this.surface.faces[fi].id, i: rem % n, j: Math.floor(rem / n) };
+        return { type: 'cell', faceId: this.surface.faces[fi].id, i: local % n, j: Math.floor(local / n) };
       }
     }
 
@@ -600,7 +626,21 @@ export class View3D {
     //              facet tiles (the LED-behind-a-diffuser effect).
     //   'square' — the original full-cell square (folds around edges).
     this.headStyle = 'led';
-    this._INNER_DEPTH = 0.18; // how far inside the cube the firefly rides
+    // Firefly geometry (all live controls, see setters below):
+    //   headDepth    — distance from the surface along the normal. POSITIVE =
+    //                  inside the cube, NEGATIVE = riding OUTSIDE (where the
+    //                  facets' front sides catch the light). Small values keep
+    //                  the firefly glued to the surface, so the corner "pause"
+    //                  (the constant-depth offset can't fold around an edge)
+    //                  becomes imperceptible.
+    //   headCoreSize — scale of the visible emissive core. 0 = pure light, no
+    //                  sphere at all (the default: only the glow shows).
+    //   mirrorFirefly— an INVISIBLE TWIN light mirrored on the other side of
+    //                  the surface: fakes diffusion, since a one-sided facet
+    //                  only catches light on the side facing the source.
+    this.headDepth = 0.05;
+    this.headCoreSize = 0;
+    this.mirrorFirefly = false;
     this.headLeds = this.balls.map((b, bi) => {
       const arr = [];
       for (let k = 0; k < 2; k++) {
@@ -665,6 +705,13 @@ export class View3D {
       this.cubeGroup.add(L);
       return L;
     });
+    // the optional mirrored twin (see mirrorFirefly above)
+    this.headLightsMirror = this.balls.map((b) => {
+      const L = new THREE.PointLight(new THREE.Color(b.color), 1.6, 3.4, 2);
+      L.visible = false;
+      this.cubeGroup.add(L);
+      return L;
+    });
   }
 
   // Switch the head look ('led' | 'inner' | 'square'). Everything hides; the
@@ -676,6 +723,23 @@ export class View3D {
     for (const m of this.headRings) m.visible = false;
     for (const m of this.headInners) m.visible = false;
     for (const L of this.headLights) L.visible = false;
+    for (const L of this.headLightsMirror) L.visible = false;
+  }
+
+  // Firefly distance from the surface: + inside the cube, − outside.
+  setHeadDepth(d) {
+    this.headDepth = Math.max(-0.5, Math.min(0.5, d));
+  }
+
+  // Visible core scale, 0..1 (0 = invisible: a pure light source).
+  setHeadCoreSize(s) {
+    this.headCoreSize = Math.max(0, Math.min(1, s));
+  }
+
+  // Toggle the invisible mirrored twin light (fake diffusion).
+  setMirrorFirefly(on) {
+    this.mirrorFirefly = !!on;
+    if (!on) for (const L of this.headLightsMirror) L.visible = false;
   }
 
   // Place a flat disk (unit-scale geometry) at face-local (cx,cy), aligned to
@@ -992,13 +1056,10 @@ export class View3D {
 
     // facet strikes: re-colour the tile and POP it along its normal (out or in,
     // per popAmount) — the surface itself plays the note
-    if (this.facets.visible) {
-      let colDirty = false,
-        matDirty = false;
+    if (this.facets[0].visible) {
       for (const id of this._struckIds) {
-        this.facets.setColorAt(id, this._facetColorFor(id));
-        this.facets.setMatrixAt(id, this._facetBase[id].m);
-        colDirty = matDirty = true;
+        this._facetSetColor(id, this._facetColorFor(id));
+        this._facetSetMatrix(id, this._facetBase[id].m);
       }
       this._struckIds.clear();
       for (const [key, rec] of this._struck) {
@@ -1009,8 +1070,7 @@ export class View3D {
         const k2 = 1 - age / 320;
         const fc =
           this.flashMode === 'instrument' && rec.color ? this._flashTmp.set(rec.color) : this._flashTmp.set(0xffffff);
-        this.facets.setColorAt(id, this._facetColorFor(id).lerp(fc, k2));
-        colDirty = true;
+        this._facetSetColor(id, this._facetColorFor(id).lerp(fc, k2));
         if (this.popAmount) {
           const fb = this._facetBase[id];
           const off = this.popAmount * 0.16 * k2;
@@ -1018,13 +1078,10 @@ export class View3D {
           this._tmpMat.elements[12] += fb.n[0] * off;
           this._tmpMat.elements[13] += fb.n[1] * off;
           this._tmpMat.elements[14] += fb.n[2] * off;
-          this.facets.setMatrixAt(id, this._tmpMat);
-          matDirty = true;
+          this._facetSetMatrix(id, this._tmpMat);
         }
         this._struckIds.add(id);
       }
-      if (colDirty) this.facets.instanceColor.needsUpdate = true;
-      if (matDirty) this.facets.instanceMatrix.needsUpdate = true;
     }
     for (let i = 0; i < this.balls.length; i++) {
       const b = this.balls[i];
@@ -1047,6 +1104,7 @@ export class View3D {
         for (const m of pool) m.visible = false;
         this.headInners[i].visible = false;
         this.headLights[i].visible = false;
+        this.headLightsMirror[i].visible = false;
         const f = this.surface.faceById(b.faceId);
         const half = f.size / 2;
         const cellSz = f.size / this.cells;
@@ -1078,34 +1136,46 @@ export class View3D {
           this._placeOnFace(ring, b.faceId, alongX ? centre(kk) : qc, alongX ? qc : centre(kk), 0.011);
         } else ring.visible = false;
       } else if (this.headStyle === 'inner') {
-        // the firefly: a point light + tiny core riding just inside the cube.
-        // Clamping the position into the box keeps it from poking out while
-        // folding around an edge (no more escape attempts).
+        // the firefly: a point light (+ optional tiny core) riding headDepth
+        // from the surface — inside (clamped so it can't poke out while folding
+        // around an edge) or OUTSIDE when headDepth is negative.
         for (const m of pool) m.visible = false;
         for (const led of this.headLeds[i]) led.visible = false;
         ring.visible = false;
         const f = this.surface.faceById(b.faceId);
         const P = this.surface.to3D(f, b.x, b.y);
-        const d = this._INNER_DEPTH;
-        const lim = f.size / 2 - d;
+        const d = this.headDepth;
+        const lim = f.size / 2 - d; // a no-op when d <= 0 (riding outside)
         const cl = (c) => Math.max(-lim, Math.min(lim, c));
         const px = cl(P[0] - f.n[0] * d),
           py = cl(P[1] - f.n[1] * d),
           pz = cl(P[2] - f.n[2] * d);
         const core = this.headInners[i];
-        core.position.set(px, py, pz);
-        core.visible = true;
-        core.material.emissiveIntensity = b.muted ? 0.3 : this._headGlow + k * 2.2;
-        core.material.opacity = b.muted ? 0.25 : 1;
+        core.visible = this.headCoreSize > 0.02;
+        if (core.visible) {
+          core.position.set(px, py, pz);
+          core.scale.setScalar(this.headCoreSize);
+          core.material.emissiveIntensity = b.muted ? 0.3 : this._headGlow + k * 2.2;
+          core.material.opacity = b.muted ? 0.25 : 1;
+        }
         const L = this.headLights[i];
         L.position.set(px, py, pz);
         L.visible = true;
         L.intensity = b.muted ? 0.05 : 1.6 + k * 6.0;
+        // the invisible twin, mirrored on the OTHER side of the surface: lights
+        // the facet sides the main firefly can't reach (fake diffusion)
+        const ML = this.headLightsMirror[i];
+        if (this.mirrorFirefly) {
+          ML.position.set(P[0] + f.n[0] * d, P[1] + f.n[1] * d, P[2] + f.n[2] * d);
+          ML.visible = true;
+          ML.intensity = L.intensity;
+        } else ML.visible = false;
       } else {
         // 'square': the original folding full-cell head
         for (const led of this.headLeds[i]) led.visible = false;
         this.headInners[i].visible = false;
         this.headLights[i].visible = false;
+        this.headLightsMirror[i].visible = false;
         ring.visible = false;
         const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
         for (let k2 = 0; k2 < pool.length; k2++) {

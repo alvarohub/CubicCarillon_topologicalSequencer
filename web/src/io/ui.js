@@ -6,6 +6,7 @@
 // audio/midi adapters, the core never sees it. Keyboard shortcuts keep working.
 
 import { MELODIC, DRUMS, COLLISION_SOUNDS } from './audio.js';
+import { SCALE_NAMES, NOTE_NAMES } from '../core/scales.js';
 
 export class UIPanel {
   constructor({ engine, view, audio, sequencer, midi, controls, flags }) {
@@ -163,6 +164,29 @@ export class UIPanel {
     this.chanSel.addEventListener('change', () => (this.midi.channel = +this.chanSel.value));
     rowCh.appendChild(this.chanSel);
     s.appendChild(rowCh);
+
+    // ---- Tuning: each band has its own SCALE and KEY (core/scales.js Band).
+    // Changing the key keeps the band's octave (root stays in the same 12-range).
+    const s2 = this._section('Tuning');
+    this.bandRows = {};
+    for (const [label, band] of [
+      ['H band', this.sequencer.bandH],
+      ['V band', this.sequencer.bandV],
+    ]) {
+      const row = el('div', 'ui-row');
+      row.appendChild(el('label', 'ui-label', label));
+      const scaleSel = el('select', 'ui-select');
+      SCALE_NAMES.forEach((n) => scaleSel.appendChild(option(n, n)));
+      scaleSel.addEventListener('change', () => (band.scale = scaleSel.value));
+      const keySel = el('select', 'ui-select');
+      NOTE_NAMES.forEach((n, k) => keySel.appendChild(option(n, k)));
+      keySel.addEventListener('change', () => {
+        band.root = Math.floor(band.root / 12) * 12 + +keySel.value;
+      });
+      row.append(scaleSel, keySel);
+      s2.appendChild(row);
+      this.bandRows[label] = { band, scaleSel, keySel };
+    }
   }
 
   _fillMidiOutputs(outs) {
@@ -269,6 +293,42 @@ export class UIPanel {
     this.headSel.addEventListener('change', () => this.view.setHeadStyle(this.headSel.value));
     rowH.appendChild(this.headSel);
     s2.appendChild(rowH);
+
+    // ---- Firefly tuning (the 'inner' head style) ---------------------------
+    const s3 = this._section('Firefly', this.panelR);
+
+    const rowD = el('div', 'ui-row');
+    rowD.appendChild(el('label', 'ui-label', 'Depth'));
+    this.depthInput = el('input', 'ui-range');
+    this.depthInput.type = 'range';
+    this.depthInput.min = -0.4;
+    this.depthInput.max = 0.4;
+    this.depthInput.step = 0.01;
+    this.depthInput.title = 'distance from the surface: right = inside the cube, left = OUTSIDE';
+    this.depthInput.addEventListener('input', () => this.view.setHeadDepth(+this.depthInput.value));
+    rowD.appendChild(this.depthInput);
+    s3.appendChild(rowD);
+
+    const rowCo = el('div', 'ui-row');
+    rowCo.appendChild(el('label', 'ui-label', 'Core'));
+    this.coreInput = el('input', 'ui-range');
+    this.coreInput.type = 'range';
+    this.coreInput.min = 0;
+    this.coreInput.max = 1;
+    this.coreInput.step = 0.05;
+    this.coreInput.title = 'size of the visible core sphere (0 = pure light, no sphere)';
+    this.coreInput.addEventListener('input', () => this.view.setHeadCoreSize(+this.coreInput.value));
+    rowCo.appendChild(this.coreInput);
+    s3.appendChild(rowCo);
+
+    const rowMi = el('div', 'ui-row');
+    rowMi.appendChild(el('label', 'ui-label', 'Mirror'));
+    this.mirrorChk = el('input', 'ui-check');
+    this.mirrorChk.type = 'checkbox';
+    this.mirrorChk.title = 'an invisible twin light mirrored on the other side of the surface (fake diffusion)';
+    this.mirrorChk.addEventListener('change', () => this.view.setMirrorFirefly(this.mirrorChk.checked));
+    rowMi.appendChild(this.mirrorChk);
+    s3.appendChild(rowMi);
   }
 
   // ---- Tracks ---------------------------------------------------------------
@@ -277,6 +337,9 @@ export class UIPanel {
   // of the global BPM · reset this head to its spawn position).
   _buildTracks() {
     const s = this._section('Tracks');
+    s.classList.add('wide'); // 16 tracks flow into columns in the bottom bar
+    const list = el('div', 'ui-track-list');
+    s.appendChild(list);
     this.trackRows = [];
     const RATES = [
       ['0.25', '×¼'],
@@ -346,7 +409,7 @@ export class UIPanel {
       sub.appendChild(rst);
       box.appendChild(sub);
 
-      s.appendChild(box);
+      list.appendChild(box);
       this.trackRows.push({ box, row, sel, pauseBtn, kindEl, rateSel });
     });
   }
@@ -366,6 +429,13 @@ export class UIPanel {
     this.colorInput.value = this.view.cubeColor;
     this.flashSel.value = this.view.flashMode;
     this.headSel.value = this.view.headStyle;
+    this.depthInput.value = this.view.headDepth;
+    this.coreInput.value = this.view.headCoreSize;
+    this.mirrorChk.checked = this.view.mirrorFirefly;
+    for (const r of Object.values(this.bandRows)) {
+      r.scaleSel.value = r.band.scale;
+      r.keySel.value = ((r.band.root % 12) + 12) % 12;
+    }
     this.chanSel.value = this.midi.channel;
     this.midiSel.disabled = !this.midi.enabled;
     this.chanSel.disabled = !this.midi.enabled;

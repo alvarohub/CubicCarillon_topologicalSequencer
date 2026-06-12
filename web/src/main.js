@@ -28,30 +28,23 @@ const CELL = (2 * HALF) / CELLS;
 const center = (i) => -HALF + (i + 0.5) * CELL; // cell-centre coordinate
 
 // All tracks start visible on the +Z face (id 4) so it reads like a sequencer.
-// Spawn layout (also the "reset heads" target): the H heads line up along the
-// face's VERTICAL axis (the centre column), the V heads along the BOTTOM EDGE
-// row (parallel to x). Two distinct lines that don't share the centre crossing,
-// so no two heads ever start stacked on the same cell.
+// EVERY row has an H head and EVERY column a V head (8 + 8 = the full machine;
+// pause buttons are the mixing desk). Spawn layout (also the "reset heads"
+// target): the H heads line up along the face's VERTICAL axis (the centre
+// column), the V heads along the BOTTOM EDGE row (parallel to x). The one
+// crossing cell — (4, 0) — would stack two heads, so that V head starts one
+// cell up.
 const FACE = 4;
-const H_COLORS = ['#ff5d5d', '#ff8b3d', '#ffd24d', '#ff6db0'];
-const V_COLORS = ['#5dd4ff', '#5dff9b', '#6d8bff', '#b48bff'];
+const H_COLORS = ['#ff5d5d', '#ff7a45', '#ff9b3d', '#ffb84d', '#ffd24d', '#ffe97a', '#ff6db0', '#ff9bd0'];
+const V_COLORS = ['#4dc8ff', '#5df0e0', '#5dff9b', '#9bff7a', '#6d8bff', '#8b6dff', '#b48bff', '#7adcff'];
 
-// (row index, tempo) for horizontal tracks; (col index, tempo) for vertical.
-const H_TRACKS = [
-  { cell: 1, speed: 0.4 },
-  { cell: 3, speed: 0.55 },
-  { cell: 5, speed: 0.7 },
-  { cell: 7, speed: 0.85 },
-];
-const V_TRACKS = [
-  { cell: 0, speed: 0.45 },
-  { cell: 2, speed: 0.6 },
-  { cell: 4, speed: 0.75 },
-  { cell: 6, speed: 0.9 },
-];
+// One track per row (H) / column (V); each gets its own continuous-mode tempo
+// so derailing into continuous mode immediately makes polyrhythms.
+const H_TRACKS = Array.from({ length: 8 }, (_, t) => ({ cell: t, speed: 0.4 + t * 0.07 }));
+const V_TRACKS = Array.from({ length: 8 }, (_, t) => ({ cell: t, speed: 0.45 + t * 0.07 }));
 
 // First impression = a real little band: the whole H band plays the sampled
-// PIANO; the V band is the rhythm section (one drum each). Only head 0 starts
+// PIANO; the V band is the rhythm section (drums cycling). Only head 0 starts
 // running — press run and it just works; wake the others one by one.
 const PIANO = 6; // MELODIC index of the sampled piano (io/audio.js)
 const DRUM0 = 7; // first drum index (MELODIC.length)
@@ -81,7 +74,7 @@ for (let t = 0; t < V_TRACKS.length; t++) {
       index: idx++,
       faceId: FACE,
       x: center(tr.cell),
-      y: center(0), // the bottom-edge row (parallel to x)
+      y: center(t === 4 ? 1 : 0), // bottom-edge row; col 4 starts one up (the crossing)
       vx: 0,
       vy: tr.speed,
       color: V_COLORS[t % V_COLORS.length],
