@@ -31,6 +31,7 @@ export class Ball {
     this.kind = kind;
     this.instrument = instrument; // index into the instrument list (the sound)
     this.muted = false; // a paused head freezes; its notes stay live for other heads
+    this.solo = false; // when ANY head is soloed, only soloed heads run (Logic's S)
     this.rate = 1; // per-track speed as a multiple of the global tempo (×½, ×1, ×2 …)
     this._stepAcc = 0; // fractional-beat accumulator for step mode (rate ≠ 1)
     // "home" = the spawn configuration, so a head can be reset after wandering

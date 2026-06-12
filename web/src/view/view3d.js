@@ -125,10 +125,7 @@ export class View3D {
       this.shellGroup.add(mesh);
       this.faceMeshes.push(mesh);
     }
-    // wireframe edges
-    const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s));
-    this.wireLine = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x88aadd }));
-    this.shellGroup.add(this.wireLine);
+    // (no wireframe edges: the cube outline is carried by the facet gaps)
   }
 
   // Live control: dial the cube from clear acrylic (0) to fully opaque (1).
@@ -168,6 +165,7 @@ export class View3D {
   }
 
   // The cell grid on every face: the flat coordinate frame / step-button matrix.
+  // Rebuildable (the divisions dial): geometry is regenerated, material reused.
   _buildGrid() {
     const positions = [];
     for (const f of this.surface.faces) {
@@ -181,7 +179,7 @@ export class View3D {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    this.gridMat = new THREE.LineBasicMaterial({ color: 0x3a4f70 });
+    if (!this.gridMat) this.gridMat = new THREE.LineBasicMaterial({ color: 0x3a4f70 });
     this.gridLines = new THREE.LineSegments(geo, this.gridMat);
     this.shellGroup.add(this.gridLines);
   }
@@ -206,12 +204,23 @@ export class View3D {
     this._armedMeshes = new Map(); // "faceId:i:j" -> filled pad mesh
     this._armedOutlines = new Map(); // "faceId:i:j" -> contour (muted slice)
     this._armedBaseGlow = 0.5;
-    this._padColor = new THREE.Color(0xc8cdd6); // greyish white: armed-but-silent
+    // ARMED cell colour: by default the body colour, brightened — the note is
+    // the same material as the cube, just lit from within. Tweakable live.
+    this.armedColor = '#' + new THREE.Color(this.cubeColor).lerp(new THREE.Color(0xffffff), 0.55).getHexString();
+    this._padColor = new THREE.Color(this.armedColor);
     this._padFlash = new THREE.Color(0xffffff); // strike flash (when flashMode='white')
     this._flashTmp = new THREE.Color();
     this.flashMode = 'instrument'; // strike colour: 'instrument' (saturated) | 'white'
     this._PAD_LIFT = 0.006; // above the muted strips, above the face
     this._MUTE_LIFT = 0.003;
+  }
+
+  // Live control: the colour an armed (note-carrying) cell wears.
+  setArmedColor(hex) {
+    this.armedColor = hex;
+    this._padColor.set(hex);
+    for (const mesh of this._armedMeshes.values()) mesh.material.emissive.copy(this._padColor);
+    if (this.facets) this._refreshFacetColors();
   }
 
   setFlashMode(mode) {
@@ -343,17 +352,13 @@ export class View3D {
   _buildFacets() {
     this.surfaceStyle = 'facets'; // 'grid' | 'facets' | 'both'
     this.facetGap = 0.12; // fraction of the cell left as gap between tiles
-    this.popAmount = 0.6; // -1 (pop INward) .. 0 (off) .. +1 (pop OUTward) on strike
-    // VOLUME mode: tiles become full PRISMS (columns) instead of panes, their
-    // base on the surface and their body protruding OUTWARD by facetDepth.
-    this.facetVolume = false;
-    this.facetDepth = 0.1; // prism height (world units; a cell is 0.25)
-    this._FACET_LIFT = 0.003;
-    const n = this.cells;
-    this._faceIndex = new Map(this.surface.faces.map((f, k) => [f.id, k]));
-    this._facetCount = this.surface.faces.length * n * n;
-    this._facetGeoPlane = new THREE.PlaneGeometry(1, 1);
-    this._facetGeoBox = new THREE.BoxGeometry(1, 1, 1);
+    // A struck tile becomes a PRISM: the tile itself extrudes along the face
+    // normal — outward (popAmount > 0) or INTO the cube (popAmount < 0) — and
+    // relaxes back. At rest every tile protrudes slightly from the acrylic.
+    this.popAmount = 0.6; // -1 (full inward) .. 0 (off) .. +1 (full outward)
+    this._FACET_REST = 0.012; // resting tile thickness (slight protrusion)
+    this._FACET_LIFT = 0.0015;
+    this._facetGeo = new THREE.BoxGeometry(1, 1, 1);
     this.facetMat = new THREE.MeshStandardMaterial({
       color: 0xffffff, // per-instance colours carry everything
       roughness: 0.55,
@@ -363,25 +368,41 @@ export class View3D {
       side: THREE.DoubleSide,
       depthWrite: false,
     });
-    // ONE InstancedMesh PER FACE (not one for the whole cube): three.js depth-
-    // sorts transparent OBJECTS, never instances, so with a single mesh the far
-    // faces could blend on top of the near ones (the "messy overlap" artefact).
-    // Six small meshes let the renderer draw back-to-front per face.
+    this.facets = null;
+    this._facetSeq = null; // last sequencer seen, for re-colouring
+    this._struckIds = new Set(); // tiles flashed/extruded last frame (to restore)
+    this._tmpCol = new THREE.Color();
+    this._tmpMat = new THREE.Matrix4();
+    this._createFacetMeshes();
+    this._refreshFacetColors();
+    this._applySurfaceStyle();
+  }
+
+  // (Re)create the six per-face InstancedMeshes — called at build time and again
+  // whenever the grid divisions change.
+  // ONE InstancedMesh PER FACE (not one for the whole cube): three.js depth-
+  // sorts transparent OBJECTS, never instances, so with a single mesh the far
+  // faces could blend on top of the near ones (the "messy overlap" artefact).
+  _createFacetMeshes() {
+    if (this.facets) {
+      for (const m of this.facets) {
+        this.shellGroup.remove(m);
+        m.dispose();
+      }
+    }
+    const n = this.cells;
+    this._faceIndex = new Map(this.surface.faces.map((f, k) => [f.id, k]));
+    this._facetCount = this.surface.faces.length * n * n;
     this.facets = this.surface.faces.map((f, fi) => {
-      const m = new THREE.InstancedMesh(this.facetVolume ? this._facetGeoBox : this._facetGeoPlane, this.facetMat, n * n);
+      const m = new THREE.InstancedMesh(this._facetGeo, this.facetMat, n * n);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.userData = { pick: 'facets', faceIdx: fi };
       this.shellGroup.add(m);
       return m;
     });
-    this._facetBase = new Array(this._facetCount); // id -> { m: Matrix4, n: normal, key }
-    this._facetSeq = null; // last sequencer seen, for re-colouring
-    this._struckIds = new Set(); // tiles flashed/popped last frame (to restore)
-    this._tmpCol = new THREE.Color();
-    this._tmpMat = new THREE.Matrix4();
+    this._facetBase = new Array(this._facetCount); // id -> { m, n: normal, P, key }
+    this._struckIds.clear();
     this._rebuildFacetMatrices();
-    this._refreshFacetColors();
-    this._applySurfaceStyle();
   }
 
   // tile opacity follows the cube translucency dial, but never fully vanishes
@@ -416,11 +437,11 @@ export class View3D {
 
   _rebuildFacetMatrices() {
     const n = this.cells;
-    // pane: zero thickness, sits FACET_LIFT above the surface. PRISM: unit box
-    // scaled to facetDepth along the normal, base on the surface (centre lifted
-    // half the depth) so the column grows OUTWARD from the acrylic.
-    const dz = this.facetVolume ? this.facetDepth : 1;
-    const L = this.facetVolume ? this.facetDepth / 2 + this._FACET_LIFT : this._FACET_LIFT;
+    // every tile is a thin box (thickness FACET_REST) whose BASE sits on the
+    // surface — the slight resting protrusion. A strike re-scales the normal
+    // column to extrude it into a prism (see sync()).
+    const dz = this._FACET_REST;
+    const L = dz / 2 + this._FACET_LIFT;
     for (let fi = 0; fi < this.surface.faces.length; fi++) {
       const f = this.surface.faces[fi];
       const half = f.size / 2;
@@ -453,7 +474,7 @@ export class View3D {
             1,
           );
           const id = fi * n * n + j * n + i;
-          this._facetBase[id] = { m, n: nn, key: `${f.id}:${i}:${j}` };
+          this._facetBase[id] = { m, n: nn, P, key: `${f.id}:${i}:${j}` };
           this.facets[fi].setMatrixAt(j * n + i, m);
         }
       }
@@ -461,13 +482,13 @@ export class View3D {
     for (const mesh of this.facets) mesh.instanceMatrix.needsUpdate = true;
   }
 
-  // a tile's resting colour: body colour if silent, greyish-white scaled by the
-  // note's velocity if armed (returns the shared temp colour)
+  // a tile's resting colour: body colour if silent, the armed colour scaled by
+  // the note's velocity if armed (returns the shared temp colour)
   _facetColorFor(id) {
     const rec = this._facetBase[id];
     const vel = this._facetSeq ? this._facetSeq.armed.get(rec.key) : undefined;
     if (vel == null) return this._tmpCol.set(this.cubeColor);
-    return this._tmpCol.copy(this._padColor).multiplyScalar(0.3 + vel * 0.7);
+    return this._tmpCol.copy(this._padColor).multiplyScalar(0.5 + vel * 0.9);
   }
 
   _refreshFacetColors(sequencer) {
@@ -497,20 +518,6 @@ export class View3D {
     this._rebuildFacetMatrices();
   }
 
-  // Tiles as PRISMS (full columns growing outward) vs flat panes.
-  setFacetVolume(on) {
-    this.facetVolume = !!on;
-    const geo = this.facetVolume ? this._facetGeoBox : this._facetGeoPlane;
-    for (const m of this.facets) m.geometry = geo;
-    this._rebuildFacetMatrices();
-  }
-
-  // Prism height (only matters in volume mode).
-  setFacetDepth(d) {
-    this.facetDepth = Math.max(0.02, Math.min(0.6, d));
-    if (this.facetVolume) this._rebuildFacetMatrices();
-  }
-
   setPopAmount(p) {
     this.popAmount = Math.max(-1, Math.min(1, p));
   }
@@ -533,7 +540,7 @@ export class View3D {
     if (this.facets && this.facets[0].visible) {
       const id = this._facetIdFromKey(keyStr);
       if (id != null) {
-        this._facetSetColor(id, this._tmpCol.copy(this._padColor).multiplyScalar(0.3 + v * 0.7));
+        this._facetSetColor(id, this._tmpCol.copy(this._padColor).multiplyScalar(0.5 + v * 0.9));
       }
     }
   }
@@ -567,6 +574,7 @@ export class View3D {
     for (const arr of this.headLeds) for (const m of arr) if (m.visible) headMeshes.push(m);
     for (const m of this.headInners) if (m.visible) headMeshes.push(m);
     for (const m of this.headRings) if (m.visible) headMeshes.push(m);
+    for (const m of this.headFrames) if (m.visible) headMeshes.push(m);
     const hHit = this._ray.intersectObjects(headMeshes, false);
     if (hHit.length) return { type: 'head', index: hHit[0].object.userData.index };
 
@@ -608,9 +616,9 @@ export class View3D {
     // Heads sit on the TRUE surface (lift 0); the body shell is shrunk instead.
     // This keeps folded edge-pieces meeting exactly on the shared edge.
     this._lift = 0;
-    this._headHalf = cell * 0.86 * 0.5; // half-side of the square head
     this._POOL = 3; // max simultaneous pieces (in-face + 2 perpendicular folds)
     this._headGlow = 1.0; // baseline emissive intensity
+    this._headGeos(cell); // shared, rebuildable geometries (the divisions dial)
     this.headPools = this.balls.map((b, bi) => {
       const base = new THREE.Color(b.color);
       const pool = [];
@@ -689,7 +697,7 @@ export class View3D {
           depthWrite: false,
           side: THREE.DoubleSide,
         });
-        const mesh = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.15, 24), mat);
+        const mesh = new THREE.Mesh(this._ledGeo, mat);
         mesh.matrixAutoUpdate = false;
         mesh.visible = false;
         mesh.userData = { pick: 'head', index: bi };
@@ -708,7 +716,24 @@ export class View3D {
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      const mesh = new THREE.Mesh(new THREE.RingGeometry(cell * 0.17, cell * 0.26, 28), mat);
+      const mesh = new THREE.Mesh(this._ringGeo, mat);
+      mesh.matrixAutoUpdate = false;
+      mesh.visible = false;
+      mesh.userData = { pick: 'head', index: bi };
+      this.cubeGroup.add(mesh);
+      return mesh;
+    });
+    // the FRAME head (Logic's playhead): a plain non-filled white square sitting
+    // on the head's current cell, its contour as thick as the tile gap.
+    this.headFrames = this.balls.map((b, bi) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(this._frameGeo, mat);
       mesh.matrixAutoUpdate = false;
       mesh.visible = false;
       mesh.userData = { pick: 'head', index: bi };
@@ -725,7 +750,7 @@ export class View3D {
         transparent: true,
         opacity: 1,
       });
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(cell * 0.14, 18, 12), mat);
+      const mesh = new THREE.Mesh(this._coreGeo, mat);
       mesh.visible = false;
       mesh.userData = { pick: 'head', index: bi };
       this.cubeGroup.add(mesh);
@@ -748,14 +773,65 @@ export class View3D {
     });
   }
 
-  // Switch the head look ('led' | 'inner' | 'square'). Everything hides; the
-  // next sync() shows the active style.
+  // (Re)create the cell-size-dependent shared head geometries.
+  _headGeos(cell) {
+    const old = [this._ledGeo, this._ringGeo, this._coreGeo, this._frameGeo];
+    this._headHalf = cell * 0.86 * 0.5; // half-side of the square head
+    this._ledGeo = new THREE.CircleGeometry(cell * 0.15, 24);
+    this._ringGeo = new THREE.RingGeometry(cell * 0.17, cell * 0.26, 28);
+    this._coreGeo = new THREE.SphereGeometry(cell * 0.14, 18, 12);
+    // square frame: outer = the full cell, contour thickness = the tile gap
+    const half = cell / 2;
+    const th = Math.max(0.012, cell * (this.facetGap ?? 0.12));
+    const inner = half - th;
+    const shape = new THREE.Shape();
+    shape.moveTo(-half, -half);
+    shape.lineTo(half, -half);
+    shape.lineTo(half, half);
+    shape.lineTo(-half, half);
+    shape.closePath();
+    const hole = new THREE.Path();
+    hole.moveTo(-inner, -inner);
+    hole.lineTo(-inner, inner);
+    hole.lineTo(inner, inner);
+    hole.lineTo(inner, -inner);
+    hole.closePath();
+    shape.holes.push(hole);
+    this._frameGeo = new THREE.ShapeGeometry(shape);
+    for (const g of old) if (g) g.dispose();
+  }
+
+  // Change the grid resolution live (the divisions dial): rebuild everything
+  // that depends on the cell size. The caller refreshes the armed cells.
+  setCells(n) {
+    this.cells = Math.max(1, Math.min(16, Math.round(n)));
+    // grid lines
+    this.shellGroup.remove(this.gridLines);
+    this.gridLines.geometry.dispose();
+    this._buildGrid();
+    // facet tiles
+    this._struck.clear();
+    this._createFacetMeshes();
+    this._refreshFacetColors();
+    this._applySurfaceStyle();
+    // head geometries
+    const cell = this.surface.faces[0].size / this.cells;
+    this._headGeos(cell);
+    for (const arr of this.headLeds) for (const m of arr) m.geometry = this._ledGeo;
+    for (const m of this.headRings) m.geometry = this._ringGeo;
+    for (const m of this.headInners) m.geometry = this._coreGeo;
+    for (const m of this.headFrames) m.geometry = this._frameGeo;
+  }
+
+  // Switch the head look ('led' | 'inner' | 'square' | 'frame'). Everything
+  // hides; the next sync() shows the active style.
   setHeadStyle(style) {
     this.headStyle = style;
     for (const pool of this.headPools) for (const m of pool) m.visible = false;
     for (const arr of this.headLeds) for (const m of arr) m.visible = false;
     for (const m of this.headRings) m.visible = false;
     for (const m of this.headInners) m.visible = false;
+    for (const m of this.headFrames) m.visible = false;
     for (const L of this.headLights) L.visible = false;
     for (const L of this.headLightsMirror) L.visible = false;
   }
@@ -1026,6 +1102,13 @@ export class View3D {
         return;
       }
       moved += Math.abs(dx) + Math.abs(dy);
+      if (downButton === 2) {
+        // right-drag = PAN: translate the cube in the screen plane
+        const sc = 0.0016 * this.camera.position.z;
+        this.cubeGroup.position.x += dx * sc;
+        this.cubeGroup.position.y -= dy * sc;
+        return;
+      }
       if (downButton !== 0) return; // only the primary button rotates the cube
       this.cubeGroup.rotation.y += dx * 0.01;
       this.cubeGroup.rotation.x += dy * 0.01;
@@ -1103,8 +1186,9 @@ export class View3D {
       }
     }
 
-    // facet strikes: re-colour the tile and POP it along its normal (out or in,
-    // per popAmount) — the surface itself plays the note
+    // facet strikes: the tile EXTRUDES into a prism along its normal (outward
+    // or into the cube, per popAmount) and flashes HOT — colour pushed well past
+    // the resting palette so the strike reads on its own, not just by reflection
     if (this.facets[0].visible) {
       for (const id of this._struckIds) {
         this._facetSetColor(id, this._facetColorFor(id));
@@ -1119,14 +1203,25 @@ export class View3D {
         const k2 = 1 - age / 320;
         const fc =
           this.flashMode === 'instrument' && rec.color ? this._flashTmp.set(rec.color) : this._flashTmp.set(0xffffff);
-        this._facetSetColor(id, this._facetColorFor(id).lerp(fc, k2));
+        this._facetSetColor(
+          id,
+          this._facetColorFor(id)
+            .lerp(fc, k2)
+            .multiplyScalar(1 + 2.2 * k2),
+        );
         if (this.popAmount) {
           const fb = this._facetBase[id];
-          const off = this.popAmount * 0.16 * k2;
+          const h = this._FACET_REST + Math.abs(this.popAmount) * 0.42 * k2;
+          const sgn = this.popAmount >= 0 ? 1 : -1;
           this._tmpMat.copy(fb.m);
-          this._tmpMat.elements[12] += fb.n[0] * off;
-          this._tmpMat.elements[13] += fb.n[1] * off;
-          this._tmpMat.elements[14] += fb.n[2] * off;
+          const e = this._tmpMat.elements;
+          const sc = h / this._FACET_REST;
+          e[8] *= sc; // normal column = nn * h (the prism height)
+          e[9] *= sc;
+          e[10] *= sc;
+          e[12] = fb.P[0] + fb.n[0] * ((sgn * h) / 2); // base stays on the surface
+          e[13] = fb.P[1] + fb.n[1] * ((sgn * h) / 2);
+          e[14] = fb.P[2] + fb.n[2] * ((sgn * h) / 2);
           this._facetSetMatrix(id, this._tmpMat);
         }
         this._struckIds.add(id);
@@ -1143,6 +1238,7 @@ export class View3D {
         this.headLights[i].visible = false;
         this.headLightsMirror[i].visible = false;
         this.headRings[i].visible = false;
+        this.headFrames[i].visible = false;
         continue;
       }
       const dt = now - b.flash;
@@ -1164,6 +1260,7 @@ export class View3D {
         this.headInners[i].visible = false;
         this.headLights[i].visible = false;
         this.headLightsMirror[i].visible = false;
+        this.headFrames[i].visible = false;
         const f = this.surface.faceById(b.faceId);
         const half = f.size / 2;
         const cellSz = f.size / this.cells;
@@ -1194,6 +1291,23 @@ export class View3D {
           const kk = Math.max(0, Math.min(this.cells - 1, Math.round(s)));
           this._placeOnFace(ring, b.faceId, alongX ? centre(kk) : qc, alongX ? qc : centre(kk), 0.011);
         } else ring.visible = false;
+      } else if (this.headStyle === 'frame') {
+        // Logic's playhead: a plain white non-filled square sitting on the
+        // head's current CELL (snapped), its contour as thick as the tile gap
+        for (const m of pool) m.visible = false;
+        for (const led of this.headLeds[i]) led.visible = false;
+        this.headInners[i].visible = false;
+        this.headLights[i].visible = false;
+        this.headLightsMirror[i].visible = false;
+        ring.visible = false;
+        const f = this.surface.faceById(b.faceId);
+        const half = f.size / 2;
+        const cellSz = f.size / this.cells;
+        const idx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cellSz)));
+        const centre = (kk) => -half + (kk + 0.5) * cellSz;
+        const fr = this.headFrames[i];
+        this._placeOnFace(fr, b.faceId, centre(idx(b.x)), centre(idx(b.y)), 0.014);
+        fr.material.opacity = b.muted ? 0.2 : 0.7 + k * 0.3;
       } else if (this.headStyle === 'inner') {
         // the firefly: a point light (+ optional tiny core) riding headDepth
         // from the surface — inside (clamped so it can't poke out while folding
@@ -1201,6 +1315,7 @@ export class View3D {
         for (const m of pool) m.visible = false;
         for (const led of this.headLeds[i]) led.visible = false;
         ring.visible = false;
+        this.headFrames[i].visible = false;
         const f = this.surface.faceById(b.faceId);
         const P = this.surface.to3D(f, b.x, b.y);
         const d = this.headDepth;
@@ -1212,8 +1327,7 @@ export class View3D {
         const core = this.headInners[i];
         // the NOTE lights the firefly: idle = dim + desaturated; over an armed
         // cell = full instrument colour at fireflyBright, for the whole crossing
-        const over =
-          this._facetSeq && this._facetSeq.armed.has(`${b.faceId}:${b.cellI}:${b.cellJ}`) && !b.muted;
+        const over = this._facetSeq && this._facetSeq.armed.has(`${b.faceId}:${b.cellI}:${b.cellJ}`) && !b.muted;
         const col = this._fireflyCol.copy(this.headBaseCols[i]);
         if (!over) col.lerp(this._white, this.fireflyDesat);
         core.visible = this.headCoreSize > 0.02;
@@ -1244,6 +1358,7 @@ export class View3D {
         this.headInners[i].visible = false;
         this.headLights[i].visible = false;
         this.headLightsMirror[i].visible = false;
+        this.headFrames[i].visible = false;
         ring.visible = false;
         const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
         for (let k2 = 0; k2 < pool.length; k2++) {

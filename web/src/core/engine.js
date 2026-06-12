@@ -43,6 +43,18 @@ export class Engine {
     // head-to-head collisions (the sequencer's intersection events)
     this.collisionRadius = 0.12;
     this._colliding = new Set(); // pair keys currently overlapping (debounce)
+
+    // SOLO (Logic-style): when any active head is soloed, all the others freeze
+    this.soloActive = false;
+  }
+
+  refreshSolo() {
+    this.soloActive = this.balls.some((b) => b.active !== false && b.solo);
+  }
+
+  // a head is silent if paused, or if a solo is active elsewhere
+  _silent(b) {
+    return b.muted || (this.soloActive && !b.solo);
   }
 
   // ---- grid helpers ----
@@ -117,7 +129,7 @@ export class Engine {
     const all = [];
     for (const b of this.balls) {
       if (b.active === false) continue; // track disabled (the track-count dial)
-      if (b.muted) continue; // a paused head freezes (its notes stay live for the other band)
+      if (this._silent(b)) continue; // paused, or soloed-out
       const face = this.surface.faceById(b.faceId);
       let acc = this._accel(face);
       if (this.railed) acc = this._railProject(b, acc);
@@ -136,7 +148,7 @@ export class Engine {
     const all = [];
     for (const b of this.balls) {
       if (b.active === false) continue; // track disabled (the track-count dial)
-      if (b.muted) continue; // a paused head freezes (its notes stay live for the other band)
+      if (this._silent(b)) continue; // paused, or soloed-out
       b._stepAcc = (b._stepAcc || 0) + (b.rate || 1);
       let guard = 0;
       while (b._stepAcc >= 1 - 1e-9 && guard++ < 16) {
@@ -325,10 +337,10 @@ export class Engine {
     const n = this.balls.length;
     for (let i = 0; i < n; i++) {
       const a = this.balls[i];
-      if (a.active === false || a.muted) continue;
+      if (a.active === false || this._silent(a)) continue;
       for (let j = i + 1; j < n; j++) {
         const b = this.balls[j];
-        if (b.active === false || b.muted) continue;
+        if (b.active === false || this._silent(b)) continue;
         if (a.faceId !== b.faceId) continue;
         if (Math.abs(a.x - b.x) > r || Math.abs(a.y - b.y) > r) continue;
         const key = i * n + j;

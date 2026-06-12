@@ -23,19 +23,28 @@ const surface = buildCube(2);
 // Heads from perpendicular groups meet at grid intersections -> a collision
 // event -> an accent note. Because each track has a different tempo, the
 // intersections recur at the least-common-multiple of the periods: polyrhythms.
-const CELLS = 8;
+const CELLS = 4; // divisions per face side (1..16, changeable live from the panel)
 const HALF = 1; // cube half-size (faces span [-1, 1])
-const CELL = (2 * HALF) / CELLS;
-const center = (i) => -HALF + (i + 0.5) * CELL; // cell-centre coordinate
 
 // All tracks start visible on the +Z face (id 4) so it reads like a sequencer.
 // EVERY row has an H head and EVERY column a V head (8 + 8 = the full machine;
 // pause buttons are the mixing desk). Spawn layout (also the "reset heads"
 // target): the H heads line up along the face's VERTICAL axis (the centre
-// column), the V heads along the BOTTOM EDGE row (parallel to x). The one
-// crossing cell — (4, 0) — would stack two heads, so that V head starts one
-// cell up.
+// column), the V heads along the BOTTOM EDGE row (parallel to x). The crossing
+// cell would stack two heads, so that V head starts one cell up.
 const FACE = 4;
+
+// Spawn configuration for track t of a band, for an n-division grid. With more
+// tracks than rows the extras share a rail (t % n).
+function homeFor(kind, t, n, speed) {
+  const cellSz = (2 * HALF) / n;
+  const c = (i) => -HALF + (i + 0.5) * cellSz;
+  const mid = Math.floor(n / 2) % n;
+  if (kind === 'H') return { faceId: FACE, x: c(mid), y: c(t % n), vx: speed, vy: 0, kind };
+  const col = t % n;
+  return { faceId: FACE, x: c(col), y: c(col === mid ? Math.min(1, n - 1) : 0), vx: 0, vy: speed, kind };
+}
+
 const H_COLORS = ['#ff5d5d', '#ff7a45', '#ff9b3d', '#ffb84d', '#ffd24d', '#ffe97a', '#ff6db0', '#ff9bd0'];
 const V_COLORS = ['#4dc8ff', '#5df0e0', '#5dff9b', '#9bff7a', '#6d8bff', '#8b6dff', '#b48bff', '#7adcff'];
 
@@ -56,16 +65,12 @@ for (let t = 0; t < H_TRACKS.length; t++) {
   const tr = H_TRACKS[t];
   const b = new Ball({
     index: idx++,
-    faceId: FACE,
-    x: center(4), // the vertical axis (centre column)
-    y: center(tr.cell),
-    vx: tr.speed,
-    vy: 0,
+    ...homeFor('H', t, CELLS, tr.speed),
     color: H_COLORS[t % H_COLORS.length],
-    kind: 'H', // horizontal band: pitch comes from its ROW
     instrument: PIANO,
   });
   b.track = t; // position within its band (for the track-count dial)
+  b.speed = tr.speed; // remembered for re-homing when the grid divisions change
   b.band = new Band({ name: `H${t}`, scale: 'pentatonic', root: 60 }); // per-track tuning
   balls.push(b);
 }
@@ -73,16 +78,12 @@ for (let t = 0; t < V_TRACKS.length; t++) {
   const tr = V_TRACKS[t];
   const b = new Ball({
     index: idx++,
-    faceId: FACE,
-    x: center(tr.cell),
-    y: center(t === 4 ? 1 : 0), // bottom-edge row; col 4 starts one up (the crossing)
-    vx: 0,
-    vy: tr.speed,
+    ...homeFor('V', t, CELLS, tr.speed),
     color: V_COLORS[t % V_COLORS.length],
-    kind: 'V', // transversal band: pitch comes from its COLUMN
     instrument: DRUM0 + (t % 4),
   });
   b.track = t;
+  b.speed = tr.speed;
   b.band = new Band({ name: `V${t}`, scale: 'pentatonic', root: 57 });
   balls.push(b);
 }
@@ -94,7 +95,7 @@ for (const b of balls) {
 }
 
 const engine = new Engine(surface, balls, CELLS);
-engine.collisionRadius = CELL * 0.55; // two heads "meet" within ~one cell
+engine.collisionRadius = ((2 * HALF) / CELLS) * 0.55; // two heads "meet" within ~one cell
 engine.stepMode = true; // START on the clocked grid (no gravity by default);
 // heads spawn already lined up as a bar, so the first impression is a clean,
 // readable step sequencer — continuous/gravity/derail are the wild modes.
@@ -113,7 +114,24 @@ const setStatus = (t) => {
 const controls = new Controls({ engine, view, audio, sequencer, startButtonId: 'start', statusFn: setStatus });
 // sound routing flags (toggled from the panel)
 const flags = { noteSound: true, collisionSound: true };
-const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags });
+
+// Change the grid resolution LIVE (1..16 divisions per face side). The score is
+// per-grid so it clears; every head is re-homed onto the new lattice.
+function setDivisions(n) {
+  n = Math.max(1, Math.min(16, Math.round(n)));
+  engine.cells = n;
+  engine.collisionRadius = ((2 * HALF) / n) * 0.55;
+  sequencer.cells = n;
+  sequencer.clear();
+  for (const b of balls) {
+    b.home = homeFor(b.kind, b.track ?? 0, n, b.speed || 0.4);
+    engine.resetHead(b);
+  }
+  view.setCells(n);
+  view.refreshArmedCells(sequencer);
+}
+
+const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags, setDivisions });
 
 // Optional debug hook (only when ?debug is in the URL): exposes the live objects
 // on window for inspection/automated UI tests. Never active in normal use.

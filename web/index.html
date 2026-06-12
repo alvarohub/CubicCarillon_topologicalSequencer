@@ -113,23 +113,22 @@
         left: auto;
         right: 12px;
       }
-      /* the LEFT (music) panel is a HORIZONTAL bottom bar: small height,
-         sections side by side, scrollable sideways — quick access, the 3D
-         view stays unobstructed */
+      /* the LEFT (music) panel is a SHORT bottom bar: sections stacked as
+         full-width rows (Logic-style track list), scrolls vertically if needed */
       .ui-panel {
         position: fixed;
         left: 0;
         right: 0;
         bottom: 0;
         z-index: 30;
-        max-height: 46vh;
-        padding: 10px 14px;
+        max-height: 34vh;
+        padding: 8px 14px;
         box-sizing: border-box;
         display: flex;
-        flex-direction: row;
-        align-items: flex-start;
-        gap: 20px;
-        overflow-x: auto;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
+        overflow-x: hidden;
         overflow-y: auto;
         background: rgba(13, 17, 26, 0.92);
         border-top: 1px solid #232f44;
@@ -162,22 +161,16 @@
         transform: translateX(0);
       }
       .ui-sec {
-        margin-bottom: 16px;
+        margin-bottom: 8px;
         flex: none;
-        width: 236px;
+        width: 100%;
       }
       .ui-sec.wide {
-        width: auto;
+        width: 100%;
       }
-      /* track boxes fill short columns top-to-bottom, then wrap sideways
-         (the whole bar scrolls horizontally if 16 tracks don't fit) */
+      /* track rows stack vertically, one full-width line each */
       .ui-track-list {
-        display: flex;
-        flex-direction: column;
-        flex-wrap: wrap;
-        align-content: flex-start;
-        max-height: 32vh;
-        column-gap: 18px;
+        display: block;
       }
       .ui-sec-title {
         font-size: 10px;
@@ -191,17 +184,22 @@
       .ui-row {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 7px;
-        margin-bottom: 7px;
+        margin-bottom: 6px;
       }
       .ui-label {
         width: 62px;
         opacity: 0.7;
         font-size: 12px;
       }
+      .ui-label.slim {
+        width: auto;
+        flex: none;
+      }
       .ui-btn {
-        flex: 1;
-        padding: 7px 6px;
+        flex: none;
+        padding: 7px 10px;
         border: 1px solid #2a3a52;
         border-radius: 8px;
         background: #1a2333;
@@ -235,6 +233,10 @@
         color: #e6edf6;
         font-size: 12px;
       }
+      .ui-chan {
+        flex: none;
+        width: 62px;
+      }
       .ui-select:disabled {
         opacity: 0.4;
       }
@@ -257,25 +259,27 @@
       .ui-check input {
         accent-color: #4a83c0;
       }
-      .ui-track-box {
-        width: 248px;
+      .ui-check.ui-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         flex: none;
-        margin-bottom: 6px;
-        padding-bottom: 6px;
+        margin-right: 6px;
+      }
+      /* one full-width line per track — Logic step-sequencer style */
+      .ui-track {
+        flex-wrap: nowrap;
+        padding: 3px 0;
+        margin-bottom: 0;
         border-bottom: 1px solid rgba(35, 47, 68, 0.55);
       }
-      .ui-track-box.muted {
-        opacity: 0.45;
+      .ui-track-ins {
+        flex: none;
+        width: 150px;
       }
-      .ui-track {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-bottom: 5px;
-      }
-      .ui-track.sub {
-        margin-bottom: 0;
-        padding-left: 17px;
+      .ui-scale {
+        flex: none;
+        width: 110px;
       }
       .ui-sub-label {
         font-size: 10px;
@@ -290,7 +294,7 @@
       }
       .ui-rate {
         flex: none;
-        width: 58px;
+        width: 64px;
       }
       .ui-dot {
         width: 11px;
@@ -304,10 +308,31 @@
         font-size: 11px;
         flex: none;
       }
-      .ui-track-pause {
-        flex: none;
-        width: 34px;
-        padding: 6px 0;
+      /* the live parameter listing ('p') */
+      .params-overlay {
+        position: fixed;
+        inset: 8vh 16vw;
+        z-index: 40;
+        overflow: auto;
+        background: rgba(10, 13, 20, 0.96);
+        border: 1px solid #2a3a52;
+        border-radius: 12px;
+        padding: 14px 20px;
+        font-size: 12px;
+        color: #cfe0f5;
+        cursor: pointer;
+      }
+      .params-overlay pre {
+        margin: 0;
+        white-space: pre-wrap;
+        font-family: 'SF Mono', Menlo, monospace;
+      }
+      .params-title {
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        opacity: 0.5;
+        margin-bottom: 10px;
       }
       .imenu-title {
         padding: 6px 10px 8px;
@@ -347,13 +372,13 @@
 
     <div id="hud">
       <div>
-        <b>drag</b> rotate &nbsp;·&nbsp; <b>wheel/pinch</b> zoom &nbsp;·&nbsp; <b>click</b> head=pause head / cell=note
+        <b>drag</b> rotate &nbsp;·&nbsp; <b>right-drag</b> pan &nbsp;·&nbsp; <b>wheel/pinch</b> zoom &nbsp;·&nbsp; <b>click</b> head=pause head / cell=note
         &nbsp;·&nbsp; <b>hold a pad + drag ↑↓</b> velocity &nbsp;·&nbsp; <b>right-click</b> head=instrument
       </div>
       <div>
         <b>space</b> pause &nbsp;·&nbsp; <b>m</b> step/continuous &nbsp;·&nbsp; <b>g</b> gravity &nbsp;·&nbsp;
         <b>r</b> rail/derail &nbsp;·&nbsp; <b>a</b> align bar &nbsp;·&nbsp; <b>+ -</b> BPM &nbsp;·&nbsp;
-        <b>[ ]</b> opacity &nbsp;·&nbsp; phone: <b>tilt</b>
+        <b>[ ]</b> opacity &nbsp;·&nbsp; <b>p</b> parameters &nbsp;·&nbsp; phone: <b>tilt</b>
       </div>
       <div id="status">running</div>
     </div>
