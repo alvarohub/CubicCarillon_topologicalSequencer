@@ -1,0 +1,254 @@
+# Cube Carillon — Ideas & Insights Notebook
+
+A running log of conceptual discoveries made while building the *topological MIDI
+sequencer*. The point of this file: **capture ideas the moment they appear** —
+that is how invention actually happens. Most of these are deliberately *not*
+implemented yet; they are seeds for future projects.
+
+> "Suppose you have a figure and you apply the maps to the corners. All is good,
+> until it approaches the vertex of the cube..." — Álvaro
+
+---
+
+## 1. The geometry we're really standing on
+
+The cube surface is a **Euclidean (flat) surface with conical singularities** — a
+set of flat polygons glued edge-to-edge by isometries. In modern terms:
+
+- Each face is a **chart**; the per-edge gluing maps are the **transition maps**
+  of an atlas. (Álvaro's original hand-typed `transformPos`/`transformSpeed`
+  tables *were* these transition maps — we now compute them from the 3D
+  embedding instead.)
+- Ball trajectories are **geodesics** (straight lines that continue straight when
+  unfolded across an edge). This is the same object as "billiards in polygons" /
+  "translation surfaces".
+- **All curvature lives at the vertices.** Faces are flat, edges are flat (you
+  can unfold across them), so by Gauss–Bonnet the entire curvature concentrates
+  at the 8 cube corners. Each corner: $3 \times 90° = 270°$, an **angle deficit
+  of $90°$**; total $8 \times 90° = 720° = 4\pi = 2\pi\chi$ (sphere). ✓
+
+This framing means the engine generalizes for free to **any polyhedron, a flat
+torus** (a square with opposite edges glued — *no* cone points, geodesics never
+get stuck), or arbitrary unfoldings: only the face list changes.
+
+---
+
+## 2. Drawing a moving figure across edges — the "clip + fold" method
+
+**Status: implementing now (the protruding-squares fix).**
+
+A head is a square living *in* the surface. When its centre nears an edge, part
+of it spills past. The fix generalizes Álvaro's original 2007 trick:
+
+- **2007 trick:** split each "ball" into four sub-squares and crop the part that
+  fell outside a face by reading it from a flattened framebuffer. Worked because
+  trajectories were axis-parallel.
+- **Now:** clip the square to the current face, and **fold** each overflow
+  rectangle onto the neighbour face using the *same transition isometry* the ball
+  uses to cross. Because the maps are signed permutations (±90° / 180° /
+  reflection), an axis-aligned rectangle maps to an axis-aligned rectangle — so
+  each piece is still a clean quad, drawn in real 3D (no framebuffer crop).
+
+The figure then **bends around the edge** instead of poking into space.
+
+---
+
+## 3. ⭐ FUTURE FEATURE — the figure splitting at a vertex (cone point)
+
+**Status: idea only. Reserved for ANOTHER project. Do NOT build yet.**
+
+This is the beautiful one. Take the "clip + fold" idea and push the figure toward
+a **cube corner**:
+
+- As long as the square overlaps only **one** edge, it folds onto one neighbour:
+  a developable bend.
+- The instant it overlaps **two edges at once** (i.e. it straddles a vertex), the
+  overflow is **non-developable** — you cannot flatten the three faces meeting at
+  a $270°$ corner without a $90°$ gap. The square must **split into two
+  rectangles riding away on two perpendicular edges**, with a wedge missing
+  between them.
+
+Why it matters:
+- It is the *visible signature of curvature* — the missing $90°$ wedge is the
+  angle deficit made tangible. The figure literally tears where the Gaussian
+  curvature is concentrated.
+- It connects to the **geodesic singularity**: a straight path is uniquely
+  continuable everywhere *except* at a cone point, where "straight ahead" is
+  genuinely ambiguous. A figure (not just a point) reaching the vertex makes that
+  ambiguity into a shape.
+- **As an instrument:** a corner-hit is a perfect special musical event — a head
+  reaching a vertex could split, reflect, or trigger an accent. Rich material for
+  a future "topological" instrument where the *shape* of the reading-head carries
+  meaning.
+
+Sketch of the moment:
+
+```
+       face A            corner (270°, missing 90° wedge)
+   ┌───────────────┐    ╱
+   │            ┌──┼───┐ piece 1 rides edge A–B
+   │            │XX│   │
+   │         ───┼──●═══╪═══  ● = the vertex
+   │            └──┼───┘ piece 2 rides edge A–C (perpendicular)
+   └───────────────┘
+                    ╲  the two pieces diverge; a wedge of the
+                       square simply has nowhere flat to go.
+```
+
+For now (current sequencer layout) heads ride fixed rows/columns and **never
+reach a corner**, so we safely clip the doubly-overflowing corner sliver. The
+full split is a deliberate future exploration.
+
+---
+
+## 4. Other threads worth keeping
+
+- **The edge "tick" = a cell tick.** Álvaro's note: a sound when the head crosses
+  an edge is conceptually identical to sounding when the head crosses a particular
+  *cell* in the grid — a periodic tick. The sequencer should treat "crossing an
+  edge" as just one special case of "entering an armed cell".
+- **Monome-style programmable surface.** The faces are a button matrix; pressing a
+  facet *arms* a cell. A head only sounds when it reads an armed cell. The head is
+  the read-head; the surface is the score. This turns the cube into a genuine
+  *topological* step sequencer (the score wraps around a closed surface).
+- **Polyrhythm from topology.** Perpendicular track groups at independent tempos
+  meet at intersections whose recurrence is the LCM of the periods — rich rhythms
+  emerge from pure geometry + number theory.
+- **Discrete vs continuous heads.** Continuous motion is pretty; quantized
+  (cell-stepped) motion at a settable BPM is a "real" sequencer. Both modes worth
+  keeping as a switch.
+- **LED-cube / microcontroller target.** Keep the model producing only face-local
+  `(x, y)`; a hardware backend rasterizes that into per-face LED grids. Low memory,
+  same core. (Reason squares are axis-aligned to edges: directly LED-addressable.)
+- **Beyond the cube.** Same engine on a dodecahedron, a torus (no cone points), or
+  a hand-designed unfolding → different "musical geometries".
+
+---
+
+## 5. ⭐ The collision function — a *non-Euclidean* sequencer
+
+**Status: design note. The core already emits `collision` events; deciding what
+they *mean* musically is the open question.**
+
+In an ordinary step sequencer the tracks are **parallel lanes** — they never
+touch. Two reading-heads crossing is simply impossible in flat, Euclidean,
+side-by-side hardware (a monome, an MPC, a piano roll).
+
+But here the score lives on a **closed, curved surface**. Perpendicular track
+groups wrap around the cube and their heads *do* meet — and *when* they meet is
+governed by the LCM of the track periods (topology + number theory making
+rhythm). This is genuinely new territory:
+
+> a **non-Euclidean sequencer** — an instrument whose extra musical events exist
+> *only because the playing surface is not flat.*
+
+**Álvaro's proposal: head intersection = a drum.** The two melodic/looped heads
+each carry their own *instrument* (see visual model below); their **coincidence**
+is a separate percussive voice — a hit that fires only at those topologically
+determined meeting points. The rhythm section is therefore *emergent*: nobody
+programs the kick pattern, it falls out of the geometry of which lanes cross
+when. Knobs to explore:
+
+- velocity/timbre from the **angle** or **relative speed** of the crossing,
+- pitch/sample from **which cell** they meet in,
+- different percussion per *pair* of instruments (red×blue ≠ red×green),
+- a "near-miss" graze vs a dead-centre hit.
+
+Two modes worth keeping as a switch (and noting they are *different functions*,
+not just settings):
+1. **Voices + drum** (above): heads = pitched/looped instruments, crossings = drum.
+2. **Pure collision instrument**: heads are silent while travelling and *only*
+   the crossings sound — the melody is written entirely by the meeting pattern.
+
+## 6. Visual model — the cube is the body, the heads are light
+
+Design language for the rendering (informs the look, not just prettiness):
+
+- **The cube is a real object** — acrylic-like: glossy, slightly translucent,
+  with a specular highlight, *or* fully opaque. This should be a **continuous
+  control** (dial opacity from clear → solid), because how much you see *into*
+  the instrument changes its character.
+- **The heads emit light.** On real hardware a sequencer shows the play position
+  as a **lit LED**; the *note* lights up as the head sweeps over it. So a head is
+  a little light source, not a painted tile.
+- **Colour = instrument, not pitch.** A head's colour identifies *which voice/
+  instrument* it is (the thing that stays constant as it loops), exactly like a
+  track colour. Pitch is read from the *cell* it lands on, not from the head's
+  colour. → Do **not** recolour a head when it crosses an edge or plays a note;
+  at most pulse its **brightness**.
+- **Future:** the armed cell itself should light up when struck (the score
+  glowing under the head); per-head point lights or a bloom pass would sell the
+  "made of light" feel. Reserved for later.
+
+### 6a. Heads float just above the surface → real shadows
+
+The rendered cube (faces + grid) can stay **slightly smaller** than the ideal
+surface the heads ride on, so the heads sit *proud* of the body instead of
+co-planar. Practically this also fixes a rendering artefact: when a head folds
+around an edge, a per-face outward *lift* separated the two pieces (they lifted
+along different face normals and no longer met at the edge). Putting the heads on
+the true surface (zero lift) and shrinking the body inward closes that seam.
+
+The richer payoff: once heads are physically above the body, they can **cast
+shadows** onto the surface — a strong, cheap 3-D cue that reinforces "the head is
+a lit object hovering over the score." (three.js: a shadow-casting light + a
+receiving surface; or a fake projected blob for performance on a phone.)
+
+---
+
+## 7. ⭐ The head as a SENSOR reading an embedded score (generalisation)
+
+**Status: idea only. A major conceptual generalisation. Do NOT build yet.**
+
+So far the head copies *classic* sequencer mechanics: a play-cursor over a grid
+of armed cells. Generalise the head into a **magnetic/optical read-head** that
+simply *reads whatever is under it* as it travels.
+
+- The surface carries a **pattern** — not necessarily colour or melody, but an
+  intricate *grid / texture / engraving*: a 2-D score **embedded on a 3-D body**
+  (sphere, polyhedron, arbitrary surface).
+- A freely moving reader follows a **geodesic** (optionally perturbed by forces,
+  see §8) and **samples** the pattern along its path. The same score reads
+  *differently depending on the trajectory and direction* — the score is no
+  longer 1-D time but a 2-D field traversed along an emergent path.
+- This unifies several earlier threads: "edge tick = cell tick", the monome
+  programmable surface, and the LED-cube target all become *special cases* of
+  "a reader sampling a field on a closed surface."
+- Instruments become **how you read**, not just **what is written**: many
+  voices = many readers crossing the same engraved score on different geodesics.
+
+This is the move from *sequencer* → *instrument that performs a surface*.
+
+---
+
+## 8. ⭐ 2-D particle physics that feels the 3-D embedding (geodesic forces)
+
+**Status: idea only, strong personal interest. Do NOT build yet — notes for a
+future project.**
+
+Earlier we had objects moving *freely* on the 3-D surface (not locked to
+rows/columns). Push that into a **physics sandbox**: particles that *live in 2-D*
+(constrained to the surface) but **interact through forces measured along the
+surface** — i.e. forces computed from the **geodesic distance** between pairs, not
+the chord through 3-D space.
+
+- Each pair feels a force along the **shortest geodesic** connecting them; the
+  particle stays on the surface (motion is intrinsic 2-D) but the *interaction
+  geometry is dictated by the 3-D embedding / curvature*.
+- Álvaro has explored this before: **points on a sphere** with a repelling force
+  along the great-circle (geodesic) distance, seeking optimal spacing. The stable
+  configurations are the classic ones — e.g. 8 points → **cube corners** — and
+  *adding one more* destabilises/reorganises the whole pattern (Thomson problem /
+  spherical codes territory; fascinating dynamics).
+- On a cube (flat faces + cone points) the same experiment is richer: geodesics
+  refract conceptually nowhere on faces/edges but become *ambiguous at the
+  vertices*, so curvature concentrated at corners would shape the equilibria in a
+  visibly different way than the smooth sphere.
+- Forces to play with: repulsion (packing), attraction/springs (clustering),
+  external "gravity" via the tilt control already in the engine. The musical
+  layer (§5–§7) can ride on top: particles reading the surface *and* pushing each
+  other around.
+
+Why it matters: it turns the instrument into a **little universe** — 2-D
+inhabitants whose interactions secretly encode the shape of their world. A clean,
+beautiful testbed for intrinsic vs. extrinsic geometry.

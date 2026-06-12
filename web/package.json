@@ -1,0 +1,7 @@
+{
+  "name": "cube-carillon-web",
+  "version": "0.1.0",
+  "description": "Topological MIDI sequencer: geodesic balls rolling on a flat surface with conical singularities (a cube, for now), triggering notes on edge crossings.",
+  "type": "module",
+  "private": true
+}

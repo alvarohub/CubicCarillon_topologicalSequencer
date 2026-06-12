@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Cube Carillon — topological MIDI sequencer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0c12;
+        font-family: -apple-system, system-ui, sans-serif;
+        color: #c9d4e3;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      #hud {
+        position: fixed;
+        left: 14px;
+        bottom: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        opacity: 0.8;
+        pointer-events: none;
+      }
+      #hud b {
+        color: #88aadd;
+      }
+      #status {
+        color: #5dff9b;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 10, 16, 0.92);
+        z-index: 10;
+      }
+      #overlay.hidden {
+        display: none;
+      }
+      .card {
+        text-align: center;
+        max-width: 460px;
+        padding: 28px 32px;
+      }
+      .card h1 {
+        font-size: 20px;
+        font-weight: 600;
+        margin: 0 0 8px;
+        color: #e6edf6;
+      }
+      .card p {
+        font-size: 13px;
+        line-height: 1.6;
+        opacity: 0.8;
+        margin: 0 0 20px;
+      }
+      #start {
+        font-size: 15px;
+        padding: 12px 28px;
+        border: 0;
+        border-radius: 999px;
+        background: #3a6ea5;
+        color: #fff;
+        cursor: pointer;
+      }
+      #start:hover {
+        background: #4a83c0;
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud">
+      <div>
+        <b>drag</b> rotate cube &nbsp;·&nbsp; <b>space</b> pause &nbsp;·&nbsp; <b>g</b> gravity &nbsp;·&nbsp;
+        <b>[ ]</b> cube opacity &nbsp;·&nbsp; phone: <b>tilt</b>
+      </div>
+      <div id="status">running</div>
+    </div>
+
+    <div id="overlay">
+      <div class="card">
+        <h1>Cube Carillon</h1>
+        <p>
+          The cube's faces are a step-sequencer grid. Square reading-heads sweep along two perpendicular groups of
+          tracks, each at its own tempo; when a horizontal and a vertical head meet at an intersection they sound an
+          accent. Drag to rotate; press <b>g</b> for gravity; on a phone, tilt the device.
+        </p>
+        <button id="start">Start (enable sound)</button>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

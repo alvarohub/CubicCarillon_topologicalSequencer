@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+
+# Node (in case a toolchain is added later)
+node_modules/
+npm-debug.log*
+
+# Processing build output
+**/applet/
