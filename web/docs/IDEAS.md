@@ -1,8 +1,8 @@
 # Cube Carillon — Ideas & Insights Notebook
 
-A running log of conceptual discoveries made while building the *topological MIDI
-sequencer*. The point of this file: **capture ideas the moment they appear** —
-that is how invention actually happens. Most of these are deliberately *not*
+A running log of conceptual discoveries made while building the _topological MIDI
+sequencer_. The point of this file: **capture ideas the moment they appear** —
+that is how invention actually happens. Most of these are deliberately _not_
 implemented yet; they are seeds for future projects.
 
 > "Suppose you have a figure and you apply the maps to the corners. All is good,
@@ -17,7 +17,7 @@ set of flat polygons glued edge-to-edge by isometries. In modern terms:
 
 - Each face is a **chart**; the per-edge gluing maps are the **transition maps**
   of an atlas. (Álvaro's original hand-typed `transformPos`/`transformSpeed`
-  tables *were* these transition maps — we now compute them from the 3D
+  tables _were_ these transition maps — we now compute them from the 3D
   embedding instead.)
 - Ball trajectories are **geodesics** (straight lines that continue straight when
   unfolded across an edge). This is the same object as "billiards in polygons" /
@@ -28,7 +28,7 @@ set of flat polygons glued edge-to-edge by isometries. In modern terms:
   of $90°$**; total $8 \times 90° = 720° = 4\pi = 2\pi\chi$ (sphere). ✓
 
 This framing means the engine generalizes for free to **any polyhedron, a flat
-torus** (a square with opposite edges glued — *no* cone points, geodesics never
+torus** (a square with opposite edges glued — _no_ cone points, geodesics never
 get stuck), or arbitrary unfoldings: only the face list changes.
 
 ---
@@ -37,14 +37,14 @@ get stuck), or arbitrary unfoldings: only the face list changes.
 
 **Status: implementing now (the protruding-squares fix).**
 
-A head is a square living *in* the surface. When its centre nears an edge, part
+A head is a square living _in_ the surface. When its centre nears an edge, part
 of it spills past. The fix generalizes Álvaro's original 2007 trick:
 
 - **2007 trick:** split each "ball" into four sub-squares and crop the part that
   fell outside a face by reading it from a flattened framebuffer. Worked because
   trajectories were axis-parallel.
 - **Now:** clip the square to the current face, and **fold** each overflow
-  rectangle onto the neighbour face using the *same transition isometry* the ball
+  rectangle onto the neighbour face using the _same transition isometry_ the ball
   uses to cross. Because the maps are signed permutations (±90° / 180° /
   reflection), an axis-aligned rectangle maps to an axis-aligned rectangle — so
   each piece is still a clean quad, drawn in real 3D (no framebuffer crop).
@@ -69,16 +69,17 @@ a **cube corner**:
   between them.
 
 Why it matters:
-- It is the *visible signature of curvature* — the missing $90°$ wedge is the
+
+- It is the _visible signature of curvature_ — the missing $90°$ wedge is the
   angle deficit made tangible. The figure literally tears where the Gaussian
   curvature is concentrated.
 - It connects to the **geodesic singularity**: a straight path is uniquely
-  continuable everywhere *except* at a cone point, where "straight ahead" is
+  continuable everywhere _except_ at a cone point, where "straight ahead" is
   genuinely ambiguous. A figure (not just a point) reaching the vertex makes that
   ambiguity into a shape.
 - **As an instrument:** a corner-hit is a perfect special musical event — a head
   reaching a vertex could split, reflect, or trigger an accent. Rich material for
-  a future "topological" instrument where the *shape* of the reading-head carries
+  a future "topological" instrument where the _shape_ of the reading-head carries
   meaning.
 
 Sketch of the moment:
@@ -105,12 +106,12 @@ full split is a deliberate future exploration.
 
 - **The edge "tick" = a cell tick.** Álvaro's note: a sound when the head crosses
   an edge is conceptually identical to sounding when the head crosses a particular
-  *cell* in the grid — a periodic tick. The sequencer should treat "crossing an
+  _cell_ in the grid — a periodic tick. The sequencer should treat "crossing an
   edge" as just one special case of "entering an armed cell".
 - **Monome-style programmable surface.** The faces are a button matrix; pressing a
-  facet *arms* a cell. A head only sounds when it reads an armed cell. The head is
+  facet _arms_ a cell. A head only sounds when it reads an armed cell. The head is
   the read-head; the surface is the score. This turns the cube into a genuine
-  *topological* step sequencer (the score wraps around a closed surface).
+  _topological_ step sequencer (the score wraps around a closed surface).
 - **Polyrhythm from topology.** Perpendicular track groups at independent tempos
   meet at intersections whose recurrence is the LCM of the periods — rich rhythms
   emerge from pure geometry + number theory.
@@ -125,39 +126,40 @@ full split is a deliberate future exploration.
 
 ---
 
-## 5. ⭐ The collision function — a *non-Euclidean* sequencer
+## 5. ⭐ The collision function — a _non-Euclidean_ sequencer
 
 **Status: design note. The core already emits `collision` events; deciding what
-they *mean* musically is the open question.**
+they _mean_ musically is the open question.**
 
 In an ordinary step sequencer the tracks are **parallel lanes** — they never
 touch. Two reading-heads crossing is simply impossible in flat, Euclidean,
 side-by-side hardware (a monome, an MPC, a piano roll).
 
 But here the score lives on a **closed, curved surface**. Perpendicular track
-groups wrap around the cube and their heads *do* meet — and *when* they meet is
+groups wrap around the cube and their heads _do_ meet — and _when_ they meet is
 governed by the LCM of the track periods (topology + number theory making
 rhythm). This is genuinely new territory:
 
 > a **non-Euclidean sequencer** — an instrument whose extra musical events exist
-> *only because the playing surface is not flat.*
+> _only because the playing surface is not flat._
 
 **Álvaro's proposal: head intersection = a drum.** The two melodic/looped heads
-each carry their own *instrument* (see visual model below); their **coincidence**
+each carry their own _instrument_ (see visual model below); their **coincidence**
 is a separate percussive voice — a hit that fires only at those topologically
-determined meeting points. The rhythm section is therefore *emergent*: nobody
+determined meeting points. The rhythm section is therefore _emergent_: nobody
 programs the kick pattern, it falls out of the geometry of which lanes cross
 when. Knobs to explore:
 
 - velocity/timbre from the **angle** or **relative speed** of the crossing,
 - pitch/sample from **which cell** they meet in,
-- different percussion per *pair* of instruments (red×blue ≠ red×green),
+- different percussion per _pair_ of instruments (red×blue ≠ red×green),
 - a "near-miss" graze vs a dead-centre hit.
 
-Two modes worth keeping as a switch (and noting they are *different functions*,
+Two modes worth keeping as a switch (and noting they are _different functions_,
 not just settings):
+
 1. **Voices + drum** (above): heads = pitched/looped instruments, crossings = drum.
-2. **Pure collision instrument**: heads are silent while travelling and *only*
+2. **Pure collision instrument**: heads are silent while travelling and _only_
    the crossings sound — the melody is written entirely by the meeting pattern.
 
 ## 6. Visual model — the cube is the body, the heads are light
@@ -165,15 +167,15 @@ not just settings):
 Design language for the rendering (informs the look, not just prettiness):
 
 - **The cube is a real object** — acrylic-like: glossy, slightly translucent,
-  with a specular highlight, *or* fully opaque. This should be a **continuous
-  control** (dial opacity from clear → solid), because how much you see *into*
+  with a specular highlight, _or_ fully opaque. This should be a **continuous
+  control** (dial opacity from clear → solid), because how much you see _into_
   the instrument changes its character.
 - **The heads emit light.** On real hardware a sequencer shows the play position
-  as a **lit LED**; the *note* lights up as the head sweeps over it. So a head is
+  as a **lit LED**; the _note_ lights up as the head sweeps over it. So a head is
   a little light source, not a painted tile.
-- **Colour = instrument, not pitch.** A head's colour identifies *which voice/
-  instrument* it is (the thing that stays constant as it loops), exactly like a
-  track colour. Pitch is read from the *cell* it lands on, not from the head's
+- **Colour = instrument, not pitch.** A head's colour identifies _which voice/
+  instrument_ it is (the thing that stays constant as it loops), exactly like a
+  track colour. Pitch is read from the _cell_ it lands on, not from the head's
   colour. → Do **not** recolour a head when it crosses an edge or plays a note;
   at most pulse its **brightness**.
 - **Future:** the armed cell itself should light up when struck (the score
@@ -183,9 +185,9 @@ Design language for the rendering (informs the look, not just prettiness):
 ### 6a. Heads float just above the surface → real shadows
 
 The rendered cube (faces + grid) can stay **slightly smaller** than the ideal
-surface the heads ride on, so the heads sit *proud* of the body instead of
+surface the heads ride on, so the heads sit _proud_ of the body instead of
 co-planar. Practically this also fixes a rendering artefact: when a head folds
-around an edge, a per-face outward *lift* separated the two pieces (they lifted
+around an edge, a per-face outward _lift_ separated the two pieces (they lifted
 along different face normals and no longer met at the edge). Putting the heads on
 the true surface (zero lift) and shrinking the body inward closes that seam.
 
@@ -200,24 +202,24 @@ receiving surface; or a fake projected blob for performance on a phone.)
 
 **Status: idea only. A major conceptual generalisation. Do NOT build yet.**
 
-So far the head copies *classic* sequencer mechanics: a play-cursor over a grid
+So far the head copies _classic_ sequencer mechanics: a play-cursor over a grid
 of armed cells. Generalise the head into a **magnetic/optical read-head** that
-simply *reads whatever is under it* as it travels.
+simply _reads whatever is under it_ as it travels.
 
 - The surface carries a **pattern** — not necessarily colour or melody, but an
-  intricate *grid / texture / engraving*: a 2-D score **embedded on a 3-D body**
+  intricate _grid / texture / engraving_: a 2-D score **embedded on a 3-D body**
   (sphere, polyhedron, arbitrary surface).
 - A freely moving reader follows a **geodesic** (optionally perturbed by forces,
   see §8) and **samples** the pattern along its path. The same score reads
-  *differently depending on the trajectory and direction* — the score is no
+  _differently depending on the trajectory and direction_ — the score is no
   longer 1-D time but a 2-D field traversed along an emergent path.
 - This unifies several earlier threads: "edge tick = cell tick", the monome
-  programmable surface, and the LED-cube target all become *special cases* of
+  programmable surface, and the LED-cube target all become _special cases_ of
   "a reader sampling a field on a closed surface."
 - Instruments become **how you read**, not just **what is written**: many
   voices = many readers crossing the same engraved score on different geodesics.
 
-This is the move from *sequencer* → *instrument that performs a surface*.
+This is the move from _sequencer_ → _instrument that performs a surface_.
 
 ---
 
@@ -226,29 +228,99 @@ This is the move from *sequencer* → *instrument that performs a surface*.
 **Status: idea only, strong personal interest. Do NOT build yet — notes for a
 future project.**
 
-Earlier we had objects moving *freely* on the 3-D surface (not locked to
-rows/columns). Push that into a **physics sandbox**: particles that *live in 2-D*
+Earlier we had objects moving _freely_ on the 3-D surface (not locked to
+rows/columns). Push that into a **physics sandbox**: particles that _live in 2-D_
 (constrained to the surface) but **interact through forces measured along the
 surface** — i.e. forces computed from the **geodesic distance** between pairs, not
 the chord through 3-D space.
 
 - Each pair feels a force along the **shortest geodesic** connecting them; the
-  particle stays on the surface (motion is intrinsic 2-D) but the *interaction
-  geometry is dictated by the 3-D embedding / curvature*.
+  particle stays on the surface (motion is intrinsic 2-D) but the _interaction
+  geometry is dictated by the 3-D embedding / curvature_.
 - Álvaro has explored this before: **points on a sphere** with a repelling force
   along the great-circle (geodesic) distance, seeking optimal spacing. The stable
   configurations are the classic ones — e.g. 8 points → **cube corners** — and
-  *adding one more* destabilises/reorganises the whole pattern (Thomson problem /
+  _adding one more_ destabilises/reorganises the whole pattern (Thomson problem /
   spherical codes territory; fascinating dynamics).
 - On a cube (flat faces + cone points) the same experiment is richer: geodesics
-  refract conceptually nowhere on faces/edges but become *ambiguous at the
-  vertices*, so curvature concentrated at corners would shape the equilibria in a
+  refract conceptually nowhere on faces/edges but become _ambiguous at the
+  vertices_, so curvature concentrated at corners would shape the equilibria in a
   visibly different way than the smooth sphere.
 - Forces to play with: repulsion (packing), attraction/springs (clustering),
   external "gravity" via the tilt control already in the engine. The musical
-  layer (§5–§7) can ride on top: particles reading the surface *and* pushing each
+  layer (§5–§7) can ride on top: particles reading the surface _and_ pushing each
   other around.
 
 Why it matters: it turns the instrument into a **little universe** — 2-D
 inhabitants whose interactions secretly encode the shape of their world. A clean,
 beautiful testbed for intrinsic vs. extrinsic geometry.
+
+---
+
+## 9. Heads leave a trace on the surface (accumulating paint / fading trail)
+
+**Status: idea only.** As a head sweeps it could **deposit colour** on the
+surface — a fading trail, or paint that _accumulates_ — turning the instrument
+into a generative painting machine (abstract, colourful, driven by the geodesics
+
+- collisions). Open question now that we no longer use a framebuffer the way the
+  2007 sketch did: how to store the deposited colour?
+
+* **Per-face render target.** Give each face its own offscreen canvas/`WebGLRenderTarget`
+  used as that face's texture; heads paint into the face's 2-D buffer at their
+  local (x,y); a slow fade (multiply by <1 each frame) gives trails. This is the
+  modern version of the old framebuffer trick — one buffer per chart instead of a
+  single flattened atlas. Clean, and LED-friendly (the buffer _is_ the per-face
+  pixel grid).
+* Collisions could splash; instruments could have distinct pigments.
+
+## 10. ⭐ The whole evolution as a SHADER / texture (the deep one)
+
+**Status: idea only, conceptually important.** Realisation: GPUs already solve
+"these map things" when **texturing** surfaces — a fragment shader runs in the
+flat 2-D (u,v) chart and is _then_ mapped onto the polygons. So the entire system
+could be expressed as a **shader running in 2-D**, with the 3-D body as nothing
+but the surface we paint that 2-D evolution onto.
+
+- All the dynamics (heads, trails §9, even the particle physics §8) happen in the
+  **flat chart space**; the polyhedron is just the display mapping.
+- Huge payoff: the evolving 2-D field becomes a reusable **"skin"** you can wrap
+  onto _anything_ — any mesh, any object. The sequencer/score/painting is a
+  material.
+- Mirrors what Álvaro was already doing with the framebuffer, but native to the
+  GPU pipeline and general. (Cross-chart gluing in a shader = sampling neighbour
+  charts at edges; the atlas transition maps become texture-coordinate lookups.)
+
+---
+
+## 11. Railed / Derailed (implemented) + the scrambling & mirror ideas
+
+**Status: railed/derailed IS implemented.** A head is either **railed** (one
+coordinate held fixed → it stays on its row/column track) or **derailed** (free
+geodesic motion, e.g. when gravity pulls it off-axis). Notes:
+
+- **Per-head type flag.** Each head is tagged _horizontal_ or _transversal_
+  (which band it belongs to), rather than constantly re-zeroing the smaller speed
+  component. This is cleaner AND sets up two future features below. (In practice,
+  across an edge the held axis swaps local x↔y because the transition maps are
+  signed permutations — the band membership is the invariant, not the local axis.)
+- **Gravity is independent of railed/derailed.** In _railed_ mode gravity still
+  acts, but only _along the rail_ — it accelerates/decelerates the head on its
+  track (and can reverse it) without pushing it off.
+- **⭐ Scramble by derail→re-rail.** Turn gravity on while _derailed_, let the
+  heads slide off their tracks, then snap back to _railed_: the heads land
+  scrambled — possibly several on the same track, new phase relationships. A
+  performance gesture: shake the cube to reshuffle the sequence.
+- **⭐ 45° mirror cell.** Because heads carry a type/direction, a special cell
+  could act as a **mirror** that bounces a head onto the _perpendicular_ route
+  (horizontal→transversal and vice-versa). A routing element on the score — the
+  beginnings of a little "marble-machine"/Turing-tumble logic on the surface.
+
+## 12. Pitch from coordinate — a score you can rotate (implemented)
+
+**Status: implemented.** Pitch is read from the head's **perpendicular** cell
+position (its "level in the stack"), exactly like a piano roll: a _horizontal_
+head's pitch comes from its row, a _transversal_ head's from its column. So the
+SAME armed cell sounds a **different pitch depending on which type of head reads
+it** — like reading a musical score that has been rotated 90°. Each band has its
+own **scale + key** (major / minor / pentatonic for now).

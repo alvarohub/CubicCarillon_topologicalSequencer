@@ -52,8 +52,15 @@ export class View3D {
     this._buildLights();
     this._buildCubeMesh();
     this._buildGrid();
+    this._buildArmedCells();
     this._buildHeadMeshes();
     this._wireDrag();
+
+    // picking (click a head -> instrument menu; click a cell -> toggle the score)
+    this._ray = new THREE.Raycaster();
+    this._ndc = new THREE.Vector2();
+    this._struck = new Map(); // "faceId:i:j" -> timestamp, for the strike flash
+    this.pickHandler = null; // set by controls; receives a pick result object
 
     // device-orientation helpers
     this._euler = new THREE.Euler();
@@ -86,6 +93,7 @@ export class View3D {
     // off while translucent so the light-emitting heads inside show through.
     this.cubeOpacity = 0.28;
     this.faceMats = [];
+    this.faceMeshes = [];
     for (const f of this.surface.faces) {
       const geo = new THREE.PlaneGeometry(s, s);
       const mat = new THREE.MeshPhysicalMaterial({
@@ -102,12 +110,14 @@ export class View3D {
       this.faceMats.push(mat);
       const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
+      mesh.userData = { pick: 'face', faceId: f.id };
       const u = f.u,
         v = f.v,
         n = f.n,
         C = f.C;
       mesh.matrix.set(u[0], v[0], n[0], C[0], u[1], v[1], n[1], C[1], u[2], v[2], n[2], C[2], 0, 0, 0, 1);
       this.shellGroup.add(mesh);
+      this.faceMeshes.push(mesh);
     }
     // wireframe edges
     const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s));
@@ -152,6 +162,102 @@ export class View3D {
     this.shellGroup.add(new THREE.LineSegments(geo, mat));
   }
 
+  // The SCORE: armed cells drawn as dim glowing pads on the surface (on the body
+  // shell, so they line up with the grid). They brighten briefly when a head
+  // strikes them. Meshes are (re)built whenever the armed set changes — the set
+  // is small (<= 6 * cells^2), so a rebuild on edit is cheap and simple.
+  _buildArmedCells() {
+    this.armedGroup = new THREE.Group();
+    this.shellGroup.add(this.armedGroup);
+    this._armedMeshes = new Map(); // "faceId:i:j" -> mesh
+    this._armedBaseGlow = 0.45;
+  }
+
+  refreshArmedCells(sequencer) {
+    // dispose previous
+    for (const mesh of this._armedMeshes.values()) {
+      this.armedGroup.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
+    this._armedMeshes.clear();
+
+    const cell = this.surface.faces[0].size / this.cells;
+    const pad = cell * 0.78; // pad size (a little smaller than the cell)
+    for (const keyStr of sequencer.armed) {
+      const [fStr, iStr, jStr] = keyStr.split(':');
+      const faceId = +fStr,
+        i = +iStr,
+        j = +jStr;
+      const f = this.surface.faceById(faceId);
+      const half = f.size / 2;
+      const cx = -half + (i + 0.5) * cell;
+      const cy = -half + (j + 0.5) * cell;
+      const geo = new THREE.PlaneGeometry(1, 1);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: new THREE.Color(0x2f8fff),
+        emissiveIntensity: this._armedBaseGlow,
+        roughness: 0.6,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.matrixAutoUpdate = false;
+      mesh.userData = { cellKey: keyStr };
+      this._placeRect(mesh, { faceId, x0: cx - pad / 2, x1: cx + pad / 2, y0: cy - pad / 2, y1: cy + pad / 2 }, 0);
+      this.armedGroup.add(mesh);
+      this._armedMeshes.set(keyStr, mesh);
+    }
+  }
+
+  // Record a strike so the corresponding armed pad flashes (called by main when a
+  // head sounds a cell).
+  strikeCell(faceId, i, j) {
+    this._struck.set(`${faceId}:${i}:${j}`, performance.now());
+  }
+
+  // Re-tint a head's emissive colour (e.g. after its instrument changes).
+  setHeadColor(index, color) {
+    const c = new THREE.Color(color);
+    for (const mesh of this.headPools[index]) mesh.material.emissive.copy(c);
+  }
+
+  // Raycast pick at screen coords. Heads take priority over cells. Returns one of
+  //   { type:'head', index }
+  //   { type:'cell', faceId, i, j }
+  //   null
+  pick(clientX, clientY) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this._ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this._ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.scene.updateMatrixWorld(true);
+    this._ray.setFromCamera(this._ndc, this.camera);
+
+    // heads first (only currently-visible pieces)
+    const headMeshes = [];
+    for (const pool of this.headPools) for (const m of pool) if (m.visible) headMeshes.push(m);
+    const hHit = this._ray.intersectObjects(headMeshes, false);
+    if (hHit.length) return { type: 'head', index: hHit[0].object.userData.index };
+
+    // then faces -> convert hit point to face-local (x,y) -> cell index
+    const fHit = this._ray.intersectObjects(this.faceMeshes, false);
+    if (fHit.length) {
+      const hit = fHit[0];
+      const faceId = hit.object.userData.faceId;
+      const local = hit.object.worldToLocal(hit.point.clone()); // plane-local = (u,v)
+      const f = this.surface.faceById(faceId);
+      const half = f.size / 2;
+      const cell = f.size / this.cells;
+      const clampIdx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cell)));
+      return { type: 'cell', faceId, i: clampIdx(local.x), j: clampIdx(local.y) };
+    }
+    return null;
+  }
+
   // One flat square per reading-head — but a head near an edge is split into
   // several rectangular PIECES (see _headPieces), so each head owns a small POOL
   // of quad meshes (1 in-face + up to 2 folded overflow). Geometry is a UNIT
@@ -164,7 +270,7 @@ export class View3D {
     this._headHalf = cell * 0.86 * 0.5; // half-side of the square head
     this._POOL = 3; // max simultaneous pieces (in-face + 2 perpendicular folds)
     this._headGlow = 1.0; // baseline emissive intensity
-    this.headPools = this.balls.map((b) => {
+    this.headPools = this.balls.map((b, bi) => {
       const base = new THREE.Color(b.color);
       const pool = [];
       for (let k = 0; k < this._POOL; k++) {
@@ -186,6 +292,7 @@ export class View3D {
         const mesh = new THREE.Mesh(geo, mat);
         mesh.matrixAutoUpdate = false;
         mesh.visible = false;
+        mesh.userData = { pick: 'head', index: bi };
         this.cubeGroup.add(mesh);
         pool.push(mesh);
       }
@@ -202,16 +309,25 @@ export class View3D {
   // out into space. (Generalizes Álvaro's 2007 "four sub-squares + framebuffer
   // crop" trick: clip + fold, driven by the atlas maps rather than a flat copy.)
   _foldRect(e, x0, x1, y0, y1) {
-    const M = e.M, t = e.t;
-    const xs = [], ys = [];
-    for (const [px, py] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
+    const M = e.M,
+      t = e.t;
+    const xs = [],
+      ys = [];
+    for (const [px, py] of [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ]) {
       xs.push(M.a * px + M.b * py + t[0]);
       ys.push(M.c * px + M.d * py + t[1]);
     }
     return {
       faceId: e.toFaceId,
-      x0: Math.min(...xs), x1: Math.max(...xs),
-      y0: Math.min(...ys), y1: Math.max(...ys),
+      x0: Math.min(...xs),
+      x1: Math.max(...xs),
+      y0: Math.min(...ys),
+      y1: Math.max(...ys),
     };
   }
 
@@ -233,8 +349,10 @@ export class View3D {
     const pieces = [
       { faceId, x0: Math.max(cx - s, -H), x1: Math.min(cx + s, H), y0: Math.max(cy - s, -H), y1: Math.min(cy + s, H) },
     ];
-    const yLo = Math.max(cy - s, -H), yHi = Math.min(cy + s, H);
-    const xLo = Math.max(cx - s, -H), xHi = Math.min(cx + s, H);
+    const yLo = Math.max(cy - s, -H),
+      yHi = Math.min(cy + s, H);
+    const xLo = Math.max(cx - s, -H),
+      xHi = Math.min(cx + s, H);
     if (cx + s > H && f.edges[0]) pieces.push(this._foldRect(f.edges[0], H, cx + s, yLo, yHi)); // +x
     if (cy + s > H && f.edges[1]) pieces.push(this._foldRect(f.edges[1], xLo, xHi, H, cy + s)); // +y
     if (cx - s < -H && f.edges[2]) pieces.push(this._foldRect(f.edges[2], cx - s, -H, yLo, yHi)); // -x
@@ -247,32 +365,66 @@ export class View3D {
   // piece's width/height. Hidden if the piece is degenerate (zero area).
   _placeRect(mesh, piece, lift) {
     const f = this.surface.faceById(piece.faceId);
-    const w = piece.x1 - piece.x0, h = piece.y1 - piece.y0;
-    if (w <= 1e-6 || h <= 1e-6) { mesh.visible = false; return; }
-    const cx = (piece.x0 + piece.x1) / 2, cy = (piece.y0 + piece.y1) / 2;
-    const u = f.u, v = f.v, n = f.n;
+    const w = piece.x1 - piece.x0,
+      h = piece.y1 - piece.y0;
+    if (w <= 1e-6 || h <= 1e-6) {
+      mesh.visible = false;
+      return;
+    }
+    const cx = (piece.x0 + piece.x1) / 2,
+      cy = (piece.y0 + piece.y1) / 2;
+    const u = f.u,
+      v = f.v,
+      n = f.n;
     const P = this.surface.to3D(f, cx, cy);
     mesh.matrix.set(
-      u[0] * w, v[0] * h, n[0], P[0] + n[0] * lift,
-      u[1] * w, v[1] * h, n[1], P[1] + n[1] * lift,
-      u[2] * w, v[2] * h, n[2], P[2] + n[2] * lift,
-      0, 0, 0, 1,
+      u[0] * w,
+      v[0] * h,
+      n[0],
+      P[0] + n[0] * lift,
+      u[1] * w,
+      v[1] * h,
+      n[1],
+      P[1] + n[1] * lift,
+      u[2] * w,
+      v[2] * h,
+      n[2],
+      P[2] + n[2] * lift,
+      0,
+      0,
+      0,
+      1,
     );
     mesh.visible = true;
   }
 
-  // pointer drag rotates the cube (on a phone the device orientation takes over)
+  // pointer drag rotates the cube (on a phone the device orientation takes over).
+  // A short tap that barely moves is treated as a CLICK and routed to pickHandler
+  // (so the same pointer both rotates and selects, like a trackball + pick).
   _wireDrag() {
     const el = this.renderer.domElement;
     let dragging = false,
       px = 0,
-      py = 0;
+      py = 0,
+      downX = 0,
+      downY = 0,
+      downT = 0,
+      moved = 0;
     el.addEventListener('pointerdown', (e) => {
       dragging = true;
-      px = e.clientX;
-      py = e.clientY;
+      px = downX = e.clientX;
+      py = downY = e.clientY;
+      downT = performance.now();
+      moved = 0;
     });
-    window.addEventListener('pointerup', () => {
+    window.addEventListener('pointerup', (e) => {
+      if (dragging) {
+        const dt = performance.now() - downT;
+        if (moved < 6 && dt < 350 && this.pickHandler) {
+          const res = this.pick(e.clientX, e.clientY);
+          if (res) this.pickHandler(res, e);
+        }
+      }
       dragging = false;
     });
     window.addEventListener('pointermove', (e) => {
@@ -281,6 +433,7 @@ export class View3D {
         dy = e.clientY - py;
       px = e.clientX;
       py = e.clientY;
+      moved += Math.abs(dx) + Math.abs(dy);
       this.cubeGroup.rotation.y += dx * 0.01;
       this.cubeGroup.rotation.x += dy * 0.01;
     });
@@ -310,6 +463,12 @@ export class View3D {
 
   // read head state from the core and update the square meshes
   sync(now) {
+    // flash struck armed pads (brightness pulse over 200ms)
+    for (const [key, mesh] of this._armedMeshes) {
+      const t = this._struck.get(key);
+      const k = t != null && now - t < 200 ? 1 - (now - t) / 200 : 0;
+      mesh.material.emissiveIntensity = this._armedBaseGlow + k * 2.2;
+    }
     for (let i = 0; i < this.balls.length; i++) {
       const b = this.balls[i];
       const pool = this.headPools[i];

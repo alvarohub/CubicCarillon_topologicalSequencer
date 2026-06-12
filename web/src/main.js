@@ -57,6 +57,8 @@ for (let t = 0; t < H_TRACKS.length; t++) {
       vx: tr.speed,
       vy: 0,
       color: H_COLORS[t % H_COLORS.length],
+      kind: 'H', // horizontal band: pitch comes from its ROW
+      instrument: t % 6,
     }),
   );
 }
@@ -71,47 +73,74 @@ for (let t = 0; t < V_TRACKS.length; t++) {
       vx: 0,
       vy: tr.speed,
       color: V_COLORS[t % V_COLORS.length],
+      kind: 'V', // transversal band: pitch comes from its COLUMN
+      instrument: t % 6,
     }),
   );
 }
 
-const engine = new Engine(surface, balls);
+const engine = new Engine(surface, balls, CELLS);
 engine.collisionRadius = CELL * 0.55; // two heads "meet" within ~one cell
-const sequencer = new Sequencer();
+const sequencer = new Sequencer({ cells: CELLS });
+sequencer.seedDefaultPattern(); // so the cube sings on first run
 
 // ---- adapters ----
 const audio = new AudioOut();
 const view = new View3D(surface, balls, document.getElementById('app'), { cells: CELLS });
+view.refreshArmedCells(sequencer); // draw the initial score
 const statusEl = document.getElementById('status');
 const setStatus = (t) => {
   if (statusEl) statusEl.textContent = t;
 };
-new Controls({ engine, view, audio, startButtonId: 'start', statusFn: setStatus });
+new Controls({ engine, view, audio, sequencer, startButtonId: 'start', statusFn: setStatus });
+
+// Optional debug hook (only when ?debug is in the URL): exposes the live objects
+// on window for inspection/automated UI tests. Never active in normal use.
+if (location.search.includes('debug')) {
+  window.__cube = { engine, view, sequencer, balls };
+}
 
 // ---- loop ----
+// A head SOUNDS when it ENTERS an armed cell (engine 'enter' events) — this
+// unifies continuous and step motion. In step mode a global clock ticks at BPM;
+// in continuous mode heads glide and cross cells at their own tempi (polyrhythm).
 let last = performance.now();
+let stepAcc = 0; // step-mode beat accumulator (seconds)
+
+function handleEnter(ev) {
+  const note = sequencer.noteForEnter(ev);
+  if (!note) return;
+  audio.play(note);
+  view.flash(ev.ball); // the reading head pulses brighter (brightness only, not hue)
+  view.strikeCell(ev.faceId, ev.i, ev.j); // flash the armed pad
+}
+
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
   engine.setRotation(view.rotationArray());
 
-  // edge crossings -> per-track rhythm note.
-  // No visual pulse here: crossing a border must NOT recolour/flash the head
-  // (its colour is the fixed instrument identity). Only collisions light up.
-  const events = engine.update(dt);
-  for (const ev of events) {
-    if (ev.type !== 'edge') continue;
-    const note = sequencer.noteFor(ev);
-    if (note) audio.play(note);
+  if (engine.stepMode) {
+    // advance on the clock: one cell per beat
+    const interval = 60 / engine.bpm;
+    stepAcc += dt;
+    let guard = 0;
+    while (stepAcc >= interval && guard++ < 8) {
+      stepAcc -= interval;
+      for (const ev of engine.tick()) handleEnter(ev);
+    }
+  } else {
+    stepAcc = 0;
+    for (const ev of engine.update(dt)) handleEnter(ev);
   }
 
-  // head intersections -> accent note (the collision-based sequencer)
+  // head intersections -> a drum hit (the non-Euclidean "collision" voice)
   for (const ev of engine.collisions()) {
     view.flash(ev.a);
     view.flash(ev.b);
     const note = sequencer.noteForCollision(ev);
-    if (note) audio.play(note);
+    if (note) audio.playDrum(note);
   }
 
   view.sync(now);
