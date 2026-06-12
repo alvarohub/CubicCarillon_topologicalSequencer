@@ -26,6 +26,7 @@ export class Controls {
     this._menu = null;
     this._wireKeyboard();
     this._wirePicking();
+    this._wireVelocity();
     this._wireStart(startButtonId);
   }
 
@@ -86,6 +87,34 @@ export class Controls {
     };
   }
 
+  // The iPad velocity gesture: LONG-PRESS a cell (~0.3 s), then drag UP/DOWN to
+  // set how hard that note plays — the pad's brightness encodes it. Long-pressing
+  // an EMPTY cell arms it first, so arm + shape is a single gesture.
+  _wireVelocity() {
+    this.view.velocityHandler = (res, delta, phase) => {
+      const { faceId, i, j } = res;
+      if (phase === 'start') {
+        if (!this.sequencer.isArmed(faceId, i, j)) {
+          this.sequencer.arm(faceId, i, j);
+          this.view.refreshArmedCells(this.sequencer);
+        }
+        this._velValue = this.sequencer.velocityAt(faceId, i, j);
+        this.statusFn(`velocity ${Math.round(this._velValue * 127)} — drag ↑↓`);
+        return true;
+      }
+      if (phase === 'move') {
+        this._velValue = this.sequencer.setVelocity(faceId, i, j, this._velValue + delta);
+        this.view.setPadVelocity(this.sequencer.key(faceId, i, j), this._velValue);
+        this.statusFn(`velocity ${Math.round(this._velValue * 127)}`);
+      } else if (phase === 'end') {
+        this.view.refreshArmedCells(this.sequencer);
+        this.statusFn(`cell ${faceId}:${i}:${j} · velocity ${Math.round(this._velValue * 127)}`);
+        this._notify();
+      }
+      return true;
+    };
+  }
+
   // Pause/unpause one head. A paused head stops moving AND its slice goes
   // silent for every head (the cells it patrols are muted in both directions).
   toggleHeadPause(index) {
@@ -120,7 +149,7 @@ export class Controls {
         lastType = ins.type;
         const sec = document.createElement('div');
         sec.className = 'imenu-sec';
-        sec.textContent = ins.type === 'drum' ? 'drums' : 'melodic';
+        sec.textContent = ins.type === 'drum' ? 'drums' : ins.type === 'sample' ? 'sampled' : 'melodic';
         menu.appendChild(sec);
       }
       const item = document.createElement('div');

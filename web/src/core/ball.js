@@ -31,6 +31,11 @@ export class Ball {
     this.kind = kind;
     this.instrument = instrument; // index into the instrument list (the sound)
     this.muted = false; // a muted head freezes and silences its whole slice
+    this.rate = 1; // per-track speed as a multiple of the global tempo (×½, ×1, ×2 …)
+    this._stepAcc = 0; // fractional-beat accumulator for step mode (rate ≠ 1)
+    // "home" = the spawn configuration, so a head can be reset after wandering
+    // (derail, swap, shift …) without rebuilding the whole scene.
+    this.home = { faceId, x, y, vx, vy, kind };
     this.flash = 0; // timestamp of last event, for renderers (not used by core math)
     // last grid cell the head occupied, for emitting "entered a new cell" events
     // (this unifies "edge tick" and "cell tick": a head sounds when it enters an

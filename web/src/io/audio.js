@@ -18,6 +18,10 @@ export const MELODIC = [
   { name: 'Saw', type: 'melodic', wave: 'sawtooth', detune: 0 },
   { name: 'Bell', type: 'melodic', wave: 'sine', detune: 7 },
   { name: 'Reed', type: 'melodic', wave: 'sawtooth', detune: -5 },
+  // A real SAMPLED instrument: the Salamander grand (loaded lazily from the
+  // tone.js CDN on first audio unlock; nearest sample is pitch-shifted by
+  // playbackRate). Falls back to the triangle synth until the samples land.
+  { name: 'Piano', type: 'sample', sample: 'piano' },
 ];
 
 export const DRUMS = [
@@ -38,6 +42,8 @@ export class AudioOut {
     this.ctx = null;
     this.master = null;
     this.collisionSound = 0; // index into COLLISION_SOUNDS
+    this._samples = new Map(); // midi note -> AudioBuffer (sampled piano)
+    this._samplesLoading = false;
   }
 
   // Must be called from a user gesture (browsers block audio otherwise).
@@ -48,8 +54,30 @@ export class AudioOut {
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.22;
       this.master.connect(this.ctx.destination);
+      this._loadPiano(); // start fetching the sampled piano in the background
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  // Fetch + decode a sparse ladder of Salamander grand samples (one every
+  // tritone, C2..C6); intermediate pitches are reached by playbackRate.
+  async _loadPiano() {
+    if (this._samplesLoading || this._samples.size) return;
+    this._samplesLoading = true;
+    const base = 'https://tonejs.github.io/audio/salamander/';
+    const ladder = { 36: 'C2', 42: 'Fs2', 48: 'C3', 54: 'Fs3', 60: 'C4', 66: 'Fs4', 72: 'C5', 78: 'Fs5', 84: 'C6' };
+    await Promise.all(
+      Object.entries(ladder).map(async ([midi, name]) => {
+        try {
+          const res = await fetch(`${base}${name}.mp3`);
+          const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+          this._samples.set(+midi, buf);
+        } catch {
+          /* offline / blocked: the triangle fallback keeps playing */
+        }
+      }),
+    );
+    this._samplesLoading = false;
   }
 
   play({ midi, duration = 0.18, instrument = 0, velocity = 78 } = {}) {
@@ -59,12 +87,24 @@ export class AudioOut {
       this._drum(ins.drum, velocity);
       return;
     }
+    if (ins.type === 'sample') {
+      if (this._samples.size) {
+        this._playSample(midi, velocity);
+        return;
+      }
+      this._tone('triangle', 0, midi, duration, velocity); // not loaded yet
+      return;
+    }
+    this._tone(ins.wave, ins.detune || 0, midi, duration, velocity);
+  }
+
+  _tone(wave, detune, midi, duration, velocity) {
     const t = this.ctx.currentTime;
     const f = 440 * Math.pow(2, (midi - 69) / 12);
     const osc = this.ctx.createOscillator();
-    osc.type = ins.wave;
+    osc.type = wave;
     osc.frequency.value = f;
-    osc.detune.value = ins.detune || 0;
+    osc.detune.value = detune;
     const peak = 0.25 + (velocity / 127) * 0.7;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
@@ -73,6 +113,32 @@ export class AudioOut {
     osc.connect(g).connect(this.master);
     osc.start(t);
     osc.stop(t + duration + 0.02);
+  }
+
+  // Play the nearest piano sample, pitch-shifted, with a natural ring-out.
+  _playSample(midi, velocity = 78) {
+    let best = null,
+      bd = Infinity;
+    for (const m of this._samples.keys()) {
+      const d = Math.abs(m - midi);
+      if (d < bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    if (best == null) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._samples.get(best);
+    src.playbackRate.value = Math.pow(2, (midi - best) / 12);
+    const g = this.ctx.createGain();
+    const peak = 0.35 + (velocity / 127) * 0.85;
+    g.gain.setValueAtTime(peak, t);
+    g.gain.setValueAtTime(peak, t + 0.6); // let it ring, then fade the tail
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    src.connect(g).connect(this.master);
+    src.start(t);
+    src.stop(t + 1.85);
   }
 
   // -- little synthesized drum kit ------------------------------------------

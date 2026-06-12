@@ -94,12 +94,22 @@ export class UIPanel {
         this.controls.refreshMutes(); // slices follow the new directions
         this.refresh();
       }),
+    );
+    s.appendChild(row3);
+
+    const row4 = el('div', 'ui-row');
+    row4.append(
+      button('Reset heads', () => {
+        this.engine.resetHeads(); // every head back to its spawn cell + direction
+        this.controls.refreshMutes();
+        this.refresh();
+      }),
       button('Reset notes', () => {
         this.sequencer.clear();
         this.view.refreshArmedCells(this.sequencer);
       }),
     );
-    s.appendChild(row3);
+    s.appendChild(row4);
   }
 
   // ---- Sound ----------------------------------------------------------------
@@ -177,20 +187,47 @@ export class UIPanel {
     this.colorInput.addEventListener('input', () => this.view.setCubeColor(this.colorInput.value));
     rowC.appendChild(this.colorInput);
     s.appendChild(rowC);
+
+    // head look: LED disk on the face / firefly inside the cube / folding square
+    const rowH = el('div', 'ui-row');
+    rowH.appendChild(el('label', 'ui-label', 'Heads'));
+    this.headSel = el('select', 'ui-select');
+    [
+      ['led', 'LED disk'],
+      ['inner', 'Inside (firefly)'],
+      ['square', 'Full square'],
+    ].forEach(([v, l]) => this.headSel.appendChild(option(l, v)));
+    this.headSel.addEventListener('change', () => this.view.setHeadStyle(this.headSel.value));
+    rowH.appendChild(this.headSel);
+    s.appendChild(rowH);
   }
 
   // ---- Tracks ---------------------------------------------------------------
+  // Two lines per track: identity (colour · band · instrument · pause) and
+  // timing (shift the head back/forward one cell · speed as a musical multiple
+  // of the global BPM · reset this head to its spawn position).
   _buildTracks() {
     const s = this._section('Tracks');
     this.trackRows = [];
+    const RATES = [
+      ['0.25', '×¼'],
+      [String(1 / 3), '×⅓'],
+      ['0.5', '×½'],
+      ['1', '×1'],
+      ['2', '×2'],
+      ['3', '×3'],
+      ['4', '×4'],
+    ];
     this.engine.balls.forEach((ball, i) => {
-      const row = el('div', 'ui-track');
+      const box = el('div', 'ui-track-box');
 
+      const row = el('div', 'ui-track');
       const dot = el('span', 'ui-dot');
       dot.style.background = ball.color;
       row.appendChild(dot);
 
-      row.appendChild(el('span', 'ui-kind', ball.kind === 'V' ? 'V' : 'H'));
+      const kindEl = el('span', 'ui-kind', ball.kind === 'V' ? 'V' : 'H');
+      row.appendChild(kindEl);
 
       const sel = el('select', 'ui-select ui-track-ins');
       const gm = el('optgroup');
@@ -210,9 +247,39 @@ export class UIPanel {
         this.refresh();
       });
       row.appendChild(pauseBtn);
+      box.appendChild(row);
 
-      s.appendChild(row);
-      this.trackRows.push({ row, sel, pauseBtn, kindEl: row.children[1] });
+      const sub = el('div', 'ui-track sub');
+      const back = el('button', 'ui-btn ui-mini', '◀');
+      back.title = 'shift this head one cell back (phase)';
+      back.addEventListener('click', () => {
+        this.engine.shiftHead(i, -1);
+      });
+      const fwd = el('button', 'ui-btn ui-mini', '▶');
+      fwd.title = 'shift this head one cell forward (phase)';
+      fwd.addEventListener('click', () => {
+        this.engine.shiftHead(i, +1);
+      });
+      sub.append(el('span', 'ui-sub-label', 'shift'), back, fwd);
+
+      const rateSel = el('select', 'ui-select ui-rate');
+      RATES.forEach(([v, l]) => rateSel.appendChild(option(l, v)));
+      rateSel.title = 'this track\u2019s speed, as a multiple of the global BPM';
+      rateSel.addEventListener('change', () => (ball.rate = +rateSel.value));
+      sub.append(el('span', 'ui-sub-label', 'speed'), rateSel);
+
+      const rst = el('button', 'ui-btn ui-mini', '↺');
+      rst.title = 'reset this head to its spawn position';
+      rst.addEventListener('click', () => {
+        this.engine.resetHead(ball);
+        this.controls.refreshMutes();
+        this.refresh();
+      });
+      sub.appendChild(rst);
+      box.appendChild(sub);
+
+      s.appendChild(box);
+      this.trackRows.push({ box, row, sel, pauseBtn, kindEl, rateSel });
     });
   }
 
@@ -226,6 +293,7 @@ export class UIPanel {
     this.collSel.value = this.audio.collisionSound;
     this.opacityInput.value = this.view.cubeOpacity;
     this.colorInput.value = this.view.cubeColor;
+    this.headSel.value = this.view.headStyle;
     this.chanSel.value = this.midi.channel;
     this.midiSel.disabled = !this.midi.enabled;
     this.chanSel.disabled = !this.midi.enabled;
@@ -233,8 +301,9 @@ export class UIPanel {
       const r = this.trackRows[i];
       r.sel.value = ball.instrument;
       r.kindEl.textContent = ball.kind === 'V' ? 'V' : 'H';
+      r.rateSel.value = String(ball.rate);
       r.pauseBtn.textContent = ball.muted ? '▶' : '❚❚';
-      r.row.classList.toggle('muted', !!ball.muted);
+      r.box.classList.toggle('muted', !!ball.muted);
     });
   }
 }

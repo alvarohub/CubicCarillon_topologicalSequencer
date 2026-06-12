@@ -174,20 +174,29 @@ export class View3D {
     this.shellGroup.add(new THREE.LineSegments(geo, mat));
   }
 
-  // The SCORE: armed cells drawn as dim WHITE pads on the surface — piano-key
-  // white on the dark body; off cells are simply the dark face. A pad flares
-  // bright when a head strikes it. Pads sit a hair above the face along the
-  // normal (PAD_LIFT) so they never z-fight the body even at full opacity.
-  // Meshes are (re)built whenever the armed set changes — the set is small
-  // (<= 6 * cells^2), so a rebuild on edit is cheap and simple.
+  // The SCORE: armed cells drawn as warm AMBER pads on the surface — their
+  // brightness encodes the note's VELOCITY (the press-and-drag gesture). A pad
+  // flares to bright WHITE when a head strikes it: the flash changes COLOUR as
+  // well as intensity, so it stays perceptible whatever the base brightness.
+  // Pads sit a hair above the face along the normal (PAD_LIFT) so they never
+  // z-fight the body even at full opacity. Meshes are (re)built whenever the
+  // armed set changes — the set is small (<= 6 * cells^2), so a rebuild on edit
+  // is cheap and simple.
   _buildArmedCells() {
     this.armedGroup = new THREE.Group();
     this.shellGroup.add(this.armedGroup);
     this._armedMeshes = new Map(); // "faceId:i:j" -> filled pad mesh
     this._armedOutlines = new Map(); // "faceId:i:j" -> contour (muted slice)
     this._armedBaseGlow = 0.5;
+    this._padColor = new THREE.Color(0xffb45d); // warm amber — clearly not white
+    this._padFlash = new THREE.Color(0xffffff); // strike flash colour
     this._PAD_LIFT = 0.006; // above the muted strips, above the face
     this._MUTE_LIFT = 0.003;
+  }
+
+  // brightness encoding of a cell's velocity (0..1)
+  _padGlow(v) {
+    return 0.16 + v * 0.7;
   }
 
   // Dark translucent strips marking MUTED slices (the cells of a muted track's
@@ -247,7 +256,7 @@ export class View3D {
 
     const cell = this.surface.faces[0].size / this.cells;
     const pad = cell * 0.78; // pad size (a little smaller than the cell)
-    for (const keyStr of sequencer.armed) {
+    for (const keyStr of sequencer.armed.keys()) {
       const [fStr, iStr, jStr] = keyStr.split(':');
       const faceId = +fStr,
         i = +iStr,
@@ -272,10 +281,11 @@ export class View3D {
       }
 
       const geo = new THREE.PlaneGeometry(1, 1);
+      const vel = sequencer.armed.get(keyStr) ?? 0.7;
       const mat = new THREE.MeshStandardMaterial({
         color: 0x000000,
-        emissive: new THREE.Color(0xffffff),
-        emissiveIntensity: this._armedBaseGlow,
+        emissive: this._padColor.clone(),
+        emissiveIntensity: this._padGlow(vel),
         roughness: 0.6,
         metalness: 0.0,
         transparent: true,
@@ -285,7 +295,7 @@ export class View3D {
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.matrixAutoUpdate = false;
-      mesh.userData = { cellKey: keyStr };
+      mesh.userData = { cellKey: keyStr, baseGlow: this._padGlow(vel) };
       this._placeRect(mesh, rect, this._PAD_LIFT);
       this.armedGroup.add(mesh);
       this._armedMeshes.set(keyStr, mesh);
@@ -298,10 +308,21 @@ export class View3D {
     this._struck.set(`${faceId}:${i}:${j}`, performance.now());
   }
 
+  // Live-update one pad's brightness while the velocity gesture drags (cheap:
+  // no rebuild; the full refresh happens once on release).
+  setPadVelocity(keyStr, v) {
+    const mesh = this._armedMeshes.get(keyStr);
+    if (!mesh) return;
+    mesh.userData.baseGlow = this._padGlow(v);
+    mesh.material.emissiveIntensity = mesh.userData.baseGlow;
+  }
+
   // Re-tint a head's emissive colour (e.g. after its instrument changes).
   setHeadColor(index, color) {
     const c = new THREE.Color(color);
     for (const mesh of this.headPools[index]) mesh.material.emissive.copy(c);
+    this.headLeds[index].material.emissive.copy(c);
+    this.headInners[index].material.emissive.copy(c);
   }
 
   // Raycast pick at screen coords. Heads take priority over cells. Returns one of
@@ -315,9 +336,11 @@ export class View3D {
     this.scene.updateMatrixWorld(true);
     this._ray.setFromCamera(this._ndc, this.camera);
 
-    // heads first (only currently-visible pieces)
+    // heads first (only currently-visible pieces, whatever the head style)
     const headMeshes = [];
     for (const pool of this.headPools) for (const m of pool) if (m.visible) headMeshes.push(m);
+    for (const m of this.headLeds) if (m.visible) headMeshes.push(m);
+    for (const m of this.headInners) if (m.visible) headMeshes.push(m);
     const hHit = this._ray.intersectObjects(headMeshes, false);
     if (hHit.length) return { type: 'head', index: hHit[0].object.userData.index };
 
@@ -377,6 +400,87 @@ export class View3D {
       }
       return pool;
     });
+
+    // Alternative head LOOKS (selectable live; see setHeadStyle):
+    //   'led'    — a small glowing DISK centred on the head's current cell, like
+    //              a single LED of an LED-cube. Snapped to the cell, so it never
+    //              straddles an edge (no folding needed).
+    //   'inner'  — a glowing SPHERE riding just INSIDE the cube, visible through
+    //              the translucent body: the "firefly in the lantern".
+    //   'square' — the original full-cell square (folds around edges).
+    this.headStyle = 'led';
+    this._INNER_DEPTH = 0.18; // how far inside the cube the inner sphere rides
+    this.headLeds = this.balls.map((b, bi) => {
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: new THREE.Color(b.color),
+        emissiveIntensity: this._headGlow,
+        roughness: 0.5,
+        metalness: 0.0,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.3, 28), mat);
+      mesh.matrixAutoUpdate = false;
+      mesh.visible = false;
+      mesh.userData = { pick: 'head', index: bi };
+      this.cubeGroup.add(mesh);
+      return mesh;
+    });
+    this.headInners = this.balls.map((b, bi) => {
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: new THREE.Color(b.color),
+        emissiveIntensity: this._headGlow,
+        roughness: 0.4,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(cell * 0.3, 20, 14), mat);
+      mesh.visible = false;
+      mesh.userData = { pick: 'head', index: bi };
+      this.cubeGroup.add(mesh);
+      return mesh;
+    });
+  }
+
+  // Switch the head look ('led' | 'inner' | 'square'). Everything hides; the
+  // next sync() shows the active style.
+  setHeadStyle(style) {
+    this.headStyle = style;
+    for (const pool of this.headPools) for (const m of pool) m.visible = false;
+    for (const m of this.headLeds) m.visible = false;
+    for (const m of this.headInners) m.visible = false;
+  }
+
+  // Place a flat disk (unit-scale geometry) at face-local (cx,cy), aligned to
+  // the face frame, lifted along the normal.
+  _placeOnFace(mesh, faceId, cx, cy, lift) {
+    const f = this.surface.faceById(faceId);
+    const u = f.u,
+      v = f.v,
+      n = f.n;
+    const P = this.surface.to3D(f, cx, cy);
+    mesh.matrix.set(
+      u[0],
+      v[0],
+      n[0],
+      P[0] + n[0] * lift,
+      u[1],
+      v[1],
+      n[1],
+      P[1] + n[1] * lift,
+      u[2],
+      v[2],
+      n[2],
+      P[2] + n[2] * lift,
+      0,
+      0,
+      0,
+      1,
+    );
+    mesh.visible = true;
   }
 
   // Map a face-local rectangle through an edge gluing (M, t) onto the neighbour
@@ -480,6 +584,9 @@ export class View3D {
   // pointer drag rotates the cube (on a phone the device orientation takes over).
   // A short tap that barely moves is treated as a CLICK and routed to pickHandler
   // (so the same pointer both rotates and selects, like a trackball + pick).
+  // LONG-PRESSING a cell (~0.3s without moving) enters the VELOCITY gesture:
+  // further vertical drag shapes that note's velocity instead of rotating — the
+  // iPad move: tap arms, hold-and-drag sets how hard it plays.
   // Releasing a drag mid-motion leaves the cube SPINNING with inertia (damped in
   // sync()); grabbing it again stops it — a real trackball feel.
   _wireDrag() {
@@ -488,6 +595,8 @@ export class View3D {
     this._dragging = false;
     this._spinX = 0; // rad/s, applied + damped in sync()
     this._spinY = 0;
+    this.velocityHandler = null; // (cellRes, delta01, phase) set by controls
+    this._velCell = null; // cell being velocity-shaped (long-press active)
     let px = 0,
       py = 0,
       downX = 0,
@@ -495,7 +604,8 @@ export class View3D {
       downT = 0,
       moved = 0,
       lastMove = 0,
-      downButton = 0;
+      downButton = 0,
+      velTimer = 0;
     el.addEventListener('pointerdown', (e) => {
       this._dragging = true;
       downButton = e.button;
@@ -504,8 +614,26 @@ export class View3D {
       py = downY = e.clientY;
       downT = lastMove = performance.now();
       moved = 0;
+      this._velCell = null;
+      clearTimeout(velTimer);
+      if (e.button === 0 && this.velocityHandler) {
+        velTimer = setTimeout(() => {
+          if (!this._dragging || moved >= 6) return;
+          const res = this.pick(downX, downY);
+          if (res && res.type === 'cell' && this.velocityHandler(res, 0, 'start') !== false) {
+            this._velCell = res;
+          }
+        }, 300);
+      }
     });
     window.addEventListener('pointerup', (e) => {
+      clearTimeout(velTimer);
+      if (this._velCell) {
+        this.velocityHandler?.(this._velCell, 0, 'end');
+        this._velCell = null;
+        this._dragging = false;
+        return; // the long-press gesture swallows the tap
+      }
       if (this._dragging) {
         const dt = performance.now() - downT;
         if (moved < 6 && dt < 350 && this.pickHandler) {
@@ -524,6 +652,11 @@ export class View3D {
         dy = e.clientY - py;
       px = e.clientX;
       py = e.clientY;
+      if (this._velCell) {
+        // velocity gesture: vertical drag, up = louder (no rotation)
+        this.velocityHandler?.(this._velCell, -dy * 0.004, 'move');
+        return;
+      }
       moved += Math.abs(dx) + Math.abs(dy);
       if (downButton !== 0) return; // only the primary button rotates the cube
       this.cubeGroup.rotation.y += dx * 0.01;
@@ -572,11 +705,20 @@ export class View3D {
       this._spinY *= damp;
     }
 
-    // flash struck armed pads (brightness pulse over 200ms)
+    // flash struck armed pads: the strike pushes the amber pad to bright WHITE
+    // (a colour change, not just brightness, so it reads at any base velocity)
     for (const [key, mesh] of this._armedMeshes) {
       const t = this._struck.get(key);
-      const k = t != null && now - t < 200 ? 1 - (now - t) / 200 : 0;
-      mesh.material.emissiveIntensity = this._armedBaseGlow + k * 2.2;
+      const k = t != null && now - t < 260 ? 1 - (now - t) / 260 : 0;
+      const base = mesh.userData.baseGlow ?? this._armedBaseGlow;
+      mesh.material.emissiveIntensity = base + k * 5.0;
+      if (k > 0) {
+        mesh.material.emissive.copy(this._padColor).lerp(this._padFlash, k);
+        mesh.userData._flashing = true;
+      } else if (mesh.userData._flashing) {
+        mesh.material.emissive.copy(this._padColor);
+        mesh.userData._flashing = false;
+      }
     }
     for (let i = 0; i < this.balls.length; i++) {
       const b = this.balls[i];
@@ -587,14 +729,44 @@ export class View3D {
       // colour — the instrument identity — never changes. A PAUSED (muted) head
       // goes dim: still visible on its track, clearly asleep.
       const glow = b.muted ? 0.12 : this._headGlow + k * 1.8;
-      const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
-      for (let k2 = 0; k2 < pool.length; k2++) {
-        const mesh = pool[k2];
-        if (k2 < pieces.length) {
-          this._placeRect(mesh, pieces[k2], this._lift);
-          mesh.material.emissiveIntensity = glow;
-        } else {
-          mesh.visible = false;
+
+      if (this.headStyle === 'led') {
+        // a single LED: a disk snapped to the centre of the current cell
+        for (const m of pool) m.visible = false;
+        this.headInners[i].visible = false;
+        const f = this.surface.faceById(b.faceId);
+        const half = f.size / 2;
+        const cellSz = f.size / this.cells;
+        const idx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cellSz)));
+        const cx = -half + (idx(b.x) + 0.5) * cellSz;
+        const cy = -half + (idx(b.y) + 0.5) * cellSz;
+        const led = this.headLeds[i];
+        this._placeOnFace(led, b.faceId, cx, cy, 0.008);
+        led.material.emissiveIntensity = glow;
+      } else if (this.headStyle === 'inner') {
+        // the firefly: a glowing sphere riding just inside the cube
+        for (const m of pool) m.visible = false;
+        this.headLeds[i].visible = false;
+        const f = this.surface.faceById(b.faceId);
+        const P = this.surface.to3D(f, b.x, b.y);
+        const d = this._INNER_DEPTH;
+        const s = this.headInners[i];
+        s.position.set(P[0] - f.n[0] * d, P[1] - f.n[1] * d, P[2] - f.n[2] * d);
+        s.visible = true;
+        s.material.emissiveIntensity = glow;
+      } else {
+        // 'square': the original folding full-cell head
+        this.headLeds[i].visible = false;
+        this.headInners[i].visible = false;
+        const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
+        for (let k2 = 0; k2 < pool.length; k2++) {
+          const mesh = pool[k2];
+          if (k2 < pieces.length) {
+            this._placeRect(mesh, pieces[k2], this._lift);
+            mesh.material.emissiveIntensity = glow;
+          } else {
+            mesh.visible = false;
+          }
         }
       }
     }

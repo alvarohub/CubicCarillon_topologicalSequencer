@@ -83,6 +83,9 @@ for (let t = 0; t < V_TRACKS.length; t++) {
 
 const engine = new Engine(surface, balls, CELLS);
 engine.collisionRadius = CELL * 0.55; // two heads "meet" within ~one cell
+engine.stepMode = true; // START on the clocked grid (no gravity by default);
+// heads spawn already lined up as a bar, so the first impression is a clean,
+// readable step sequencer — continuous/gravity/derail are the wild modes.
 const sequencer = new Sequencer({ cells: CELLS });
 sequencer.seedDefaultPattern(); // so the cube sings on first run
 

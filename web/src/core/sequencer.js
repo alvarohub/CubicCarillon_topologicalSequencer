@@ -24,8 +24,11 @@ export class Sequencer {
     // two bands with independent scale + key
     this.bandH = bandH || new Band({ name: 'horizontal', scale: 'pentatonic', root: 60 }); // C
     this.bandV = bandV || new Band({ name: 'transversal', scale: 'pentatonic', root: 57 }); // A
-    // armed cells: Set of "faceId:i:j"
-    this.armed = new Set();
+    // armed cells: Map of "faceId:i:j" -> velocity (0..1, how hard the note is
+    // struck). Arming defaults to a healthy mezzo-forte; the velocity is shaped
+    // by the press-and-drag gesture (io/controls) and read by noteForEnter.
+    this.armed = new Map();
+    this.defaultVelocity = 0.7;
     // cells silenced because they sit on a MUTED track's slice. Muting a
     // horizontal track also silences those cells for vertical heads (and vice
     // versa) — the whole slice is off, regardless of reading direction.
@@ -39,8 +42,8 @@ export class Sequencer {
   isArmed(faceId, i, j) {
     return this.armed.has(this.key(faceId, i, j));
   }
-  arm(faceId, i, j) {
-    this.armed.add(this.key(faceId, i, j));
+  arm(faceId, i, j, velocity = this.defaultVelocity) {
+    this.armed.set(this.key(faceId, i, j), velocity);
   }
   disarm(faceId, i, j) {
     this.armed.delete(this.key(faceId, i, j));
@@ -51,8 +54,18 @@ export class Sequencer {
       this.armed.delete(k);
       return false;
     }
-    this.armed.add(k);
+    this.armed.set(k, this.defaultVelocity);
     return true;
+  }
+  velocityAt(faceId, i, j) {
+    return this.armed.get(this.key(faceId, i, j)) ?? 0;
+  }
+  setVelocity(faceId, i, j, v) {
+    const k = this.key(faceId, i, j);
+    if (!this.armed.has(k)) return 0;
+    const clamped = Math.max(0.05, Math.min(1, v));
+    this.armed.set(k, clamped);
+    return clamped;
   }
   clear() {
     this.armed.clear();
@@ -79,12 +92,15 @@ export class Sequencer {
   // pitch = perpendicular cell index through the head's band scale+key.
   noteForEnter(event) {
     const { ball, faceId, i, j } = event;
-    if (!this.isArmed(faceId, i, j)) return null;
-    if (this.mutedCells.has(this.key(faceId, i, j))) return null; // slice is off
+    const k = this.key(faceId, i, j);
+    if (!this.armed.has(k)) return null;
+    if (this.mutedCells.has(k)) return null; // slice is off
     // moving along x -> perpendicular level is the row j; moving along y -> col i.
     const level = ball.movingAxis() === 'x' ? j : i;
     const midi = this.bandFor(ball).midiForLevel(level);
-    return { midi, velocity: 78, duration: 0.18, instrument: ball.instrument, faceId, i, j };
+    const vel = this.armed.get(k); // 0..1 -> MIDI 1..127
+    const velocity = Math.max(1, Math.min(127, Math.round(vel * 127)));
+    return { midi, velocity, duration: 0.18, instrument: ball.instrument, faceId, i, j };
   }
 
   // A drum hit when two heads meet (the non-Euclidean "collision" voice).

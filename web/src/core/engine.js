@@ -109,7 +109,8 @@ export class Engine {
     }
   }
 
-  // Continuous-time advance.
+  // Continuous-time advance. Each head experiences time scaled by its own
+  // `rate` (a musical multiplier of the global tempo: ×½, ×1, ×2, ×3 …).
   update(dt) {
     if (this.paused) return [];
     if (this.stepMode) return []; // step mode advances via tick(), not here
@@ -119,47 +120,99 @@ export class Engine {
       const face = this.surface.faceById(b.faceId);
       let acc = this._accel(face);
       if (this.railed) acc = this._railProject(b, acc);
-      b.step(this.surface, dt, acc, this.damping, this.maxSpeed);
+      b.step(this.surface, dt * (b.rate || 1), acc, this.damping, this.maxSpeed);
       this._cellEvents(b, all);
     }
     return all;
   }
 
-  // Discrete advance: move every head exactly ONE cell along its rail. Called by
-  // the clock at `bpm`. Preserves each head's speed magnitude (so switching back
-  // to continuous keeps the polyrhythm), but the DISTANCE moved is one cell.
+  // Discrete advance, called by the clock at `bpm`. Each head accumulates its
+  // own `rate` per beat and hops one cell per whole accumulated step — so a ×2
+  // track moves two cells per beat and a ×½ track every other beat, all locked
+  // to the same grid (the per-track polyrhythm, quantised).
   tick() {
     if (this.paused) return [];
     const all = [];
     for (const b of this.balls) {
       if (b.muted) continue; // a muted track's head freezes (its slice is off)
-      const face = this.surface.faceById(b.faceId);
-      const cell = this._cellSize(face);
-
-      // direction only (normalize); remember speed to restore afterwards
-      let sp = Math.hypot(b.vx, b.vy);
-      if (sp < 1e-9) {
-        // give a stalled head a default direction along its band
-        b.vx = b.kind === 'V' ? 0 : 1;
-        b.vy = b.kind === 'V' ? 1 : 0;
-        sp = 1;
+      b._stepAcc = (b._stepAcc || 0) + (b.rate || 1);
+      let guard = 0;
+      while (b._stepAcc >= 1 - 1e-9 && guard++ < 16) {
+        b._stepAcc -= 1;
+        this._hopOneCell(b, all);
       }
-      b.vx /= sp;
-      b.vy /= sp;
-      if (this.railed) this._railProject(b, null);
-
-      // move exactly one cell (no gravity/damping during the discrete hop)
-      b.step(this.surface, cell, null, 0, Infinity);
-
-      // snap to the nearest cell centre to kill float drift, then restore speed
-      this._snapToCell(b);
-      const u = Math.hypot(b.vx, b.vy) || 1;
-      b.vx = (b.vx / u) * sp;
-      b.vy = (b.vy / u) * sp;
-
-      this._cellEvents(b, all);
     }
     return all;
+  }
+
+  // Move ONE head exactly one cell along its rail (dir = +1 forward, -1 back).
+  // Preserves the head's speed magnitude (so switching back to continuous keeps
+  // the polyrhythm); pass out=null for a silent editing hop (shift).
+  _hopOneCell(b, out, dir = 1) {
+    const face = this.surface.faceById(b.faceId);
+    const cell = this._cellSize(face);
+
+    // direction only (normalize); remember speed to restore afterwards
+    let sp = Math.hypot(b.vx, b.vy);
+    if (sp < 1e-9) {
+      // give a stalled head a default direction along its band
+      b.vx = b.kind === 'V' ? 0 : 1;
+      b.vy = b.kind === 'V' ? 1 : 0;
+      sp = 1;
+    }
+    b.vx /= sp;
+    b.vy /= sp;
+    if (this.railed) this._railProject(b, null);
+    if (dir < 0) {
+      b.vx = -b.vx;
+      b.vy = -b.vy;
+    }
+
+    // move exactly one cell (no gravity/damping during the discrete hop)
+    b.step(this.surface, cell, null, 0, Infinity);
+
+    // snap to the nearest cell centre to kill float drift, then restore the
+    // forward-facing direction and speed
+    this._snapToCell(b);
+    if (dir < 0) {
+      b.vx = -b.vx;
+      b.vy = -b.vy;
+    }
+    const u = Math.hypot(b.vx, b.vy) || 1;
+    b.vx = (b.vx / u) * sp;
+    b.vy = (b.vy / u) * sp;
+
+    if (out) this._cellEvents(b, out);
+  }
+
+  // Nudge one head a cell forward (+1) or back (-1) along its rail — a silent
+  // PHASE shift (the editing gesture). The shifted-into cell does not sound;
+  // the next clock tick reads from the new position.
+  shiftHead(index, dir = 1) {
+    const b = this.balls[index];
+    if (!b) return;
+    this._hopOneCell(b, null, dir >= 0 ? 1 : -1);
+  }
+
+  // Send one head back to its spawn configuration (face, cell, direction, band).
+  resetHead(b) {
+    if (b.home) {
+      b.faceId = b.home.faceId;
+      b.x = b.home.x;
+      b.y = b.home.y;
+      b.vx = b.home.vx;
+      b.vy = b.home.vy;
+      b.kind = b.home.kind;
+    }
+    b._stepAcc = 0;
+    b.cellFace = -1;
+    b.cellI = -1;
+    b.cellJ = -1;
+  }
+
+  // Send EVERY head home (the global "reset heads").
+  resetHeads() {
+    for (const b of this.balls) this.resetHead(b);
   }
 
   _snapToCell(b) {

@@ -212,14 +212,38 @@
       .ui-check input {
         accent-color: #4a83c0;
       }
+      .ui-track-box {
+        margin-bottom: 9px;
+        padding-bottom: 7px;
+        border-bottom: 1px solid rgba(35, 47, 68, 0.55);
+      }
+      .ui-track-box.muted {
+        opacity: 0.45;
+      }
       .ui-track {
         display: flex;
         align-items: center;
         gap: 6px;
         margin-bottom: 5px;
       }
-      .ui-track.muted {
-        opacity: 0.45;
+      .ui-track.sub {
+        margin-bottom: 0;
+        padding-left: 17px;
+      }
+      .ui-sub-label {
+        font-size: 10px;
+        opacity: 0.5;
+        flex: none;
+      }
+      .ui-mini {
+        flex: none;
+        width: 30px;
+        padding: 5px 0;
+        font-size: 11px;
+      }
+      .ui-rate {
+        flex: none;
+        width: 58px;
       }
       .ui-dot {
         width: 11px;
@@ -276,12 +300,13 @@
 
     <div id="hud">
       <div>
-        <b>drag</b> rotate &nbsp;·&nbsp; <b>click</b> head=pause track / cell=note &nbsp;·&nbsp; <b>right-click</b>
-        head=instrument &nbsp;·&nbsp; <b>space</b> pause &nbsp;·&nbsp; <b>g</b> gravity
+        <b>drag</b> rotate &nbsp;·&nbsp; <b>click</b> head=pause track / cell=note &nbsp;·&nbsp; <b>hold a pad + drag ↑↓</b>
+        velocity &nbsp;·&nbsp; <b>right-click</b> head=instrument
       </div>
       <div>
-        <b>m</b> step/continuous &nbsp;·&nbsp; <b>r</b> rail/derail &nbsp;·&nbsp; <b>a</b> align bar &nbsp;·&nbsp;
-        <b>+ -</b> BPM &nbsp;·&nbsp; <b>[ ]</b> opacity &nbsp;·&nbsp; phone: <b>tilt</b>
+        <b>space</b> pause &nbsp;·&nbsp; <b>m</b> step/continuous &nbsp;·&nbsp; <b>g</b> gravity &nbsp;·&nbsp; <b>r</b>
+        rail/derail &nbsp;·&nbsp; <b>a</b> align bar &nbsp;·&nbsp; <b>+ -</b> BPM &nbsp;·&nbsp; <b>[ ]</b> opacity
+        &nbsp;·&nbsp; phone: <b>tilt</b>
       </div>
       <div id="status">running</div>
     </div>
