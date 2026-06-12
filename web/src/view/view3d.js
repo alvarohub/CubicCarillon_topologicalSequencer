@@ -54,6 +54,7 @@ export class View3D {
     this._buildGrid();
     this._buildArmedCells();
     this._buildMutedCells();
+    this._buildFacets();
     this._buildHeadMeshes();
     this._buildGizmo();
     this._wireDrag();
@@ -78,7 +79,7 @@ export class View3D {
   // highlight slides across the acrylic as you rotate the cube — that motion is
   // what makes it read as a solid, glossy object rather than a flat panel.
   _buildLights() {
-    this.scene.add(new THREE.AmbientLight(0x4a5568, 1.3)); // soft fill
+    this.scene.add(new THREE.AmbientLight(0x7a8499, 2.4)); // generous fill — the whole scene reads
     const key = new THREE.PointLight(0xffffff, 60, 0, 2); // "not so far" key light
     key.position.set(3, 4, 5);
     this.scene.add(key);
@@ -126,8 +127,8 @@ export class View3D {
     }
     // wireframe edges
     const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s));
-    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x88aadd }));
-    this.shellGroup.add(line);
+    this.wireLine = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x88aadd }));
+    this.shellGroup.add(this.wireLine);
   }
 
   // Live control: dial the cube from clear acrylic (0) to fully opaque (1).
@@ -142,6 +143,14 @@ export class View3D {
       m.depthWrite = solid;
       m.needsUpdate = true;
     }
+    if (this.facetMat) {
+      // the facet tiles follow the same translucency dial (so the fireflies
+      // can glow through them), but never go fully invisible
+      this.facetMat.opacity = this._facetOpacity();
+      this.facetMat.transparent = !solid;
+      this.facetMat.depthWrite = solid;
+      this.facetMat.needsUpdate = true;
+    }
   }
 
   adjustCubeOpacity(delta) {
@@ -154,6 +163,7 @@ export class View3D {
     this.cubeColor = hex;
     const c = new THREE.Color(hex);
     for (const m of this.faceMats) m.color.copy(c);
+    if (this.facets) this._refreshFacetColors(); // unarmed facet tiles wear the body colour
   }
 
   // The cell grid on every face: the flat coordinate frame / step-button matrix.
@@ -170,8 +180,15 @@ export class View3D {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const mat = new THREE.LineBasicMaterial({ color: 0x24344c });
-    this.shellGroup.add(new THREE.LineSegments(geo, mat));
+    this.gridMat = new THREE.LineBasicMaterial({ color: 0x3a4f70 });
+    this.gridLines = new THREE.LineSegments(geo, this.gridMat);
+    this.shellGroup.add(this.gridLines);
+  }
+
+  // Live control: grid line colour (WebGL ignores line WIDTH, so legibility
+  // comes from colour here — or from the facet body, where the gaps ARE the grid).
+  setGridColor(hex) {
+    this.gridMat.color.set(hex);
   }
 
   // The SCORE: armed cells drawn as warm AMBER pads on the surface — their
@@ -188,10 +205,16 @@ export class View3D {
     this._armedMeshes = new Map(); // "faceId:i:j" -> filled pad mesh
     this._armedOutlines = new Map(); // "faceId:i:j" -> contour (muted slice)
     this._armedBaseGlow = 0.5;
-    this._padColor = new THREE.Color(0xffb45d); // warm amber — clearly not white
-    this._padFlash = new THREE.Color(0xffffff); // strike flash colour
+    this._padColor = new THREE.Color(0xc8cdd6); // greyish white: armed-but-silent
+    this._padFlash = new THREE.Color(0xffffff); // strike flash (when flashMode='white')
+    this._flashTmp = new THREE.Color();
+    this.flashMode = 'instrument'; // strike colour: 'instrument' (saturated) | 'white'
     this._PAD_LIFT = 0.006; // above the muted strips, above the face
     this._MUTE_LIFT = 0.003;
+  }
+
+  setFlashMode(mode) {
+    this.flashMode = mode;
   }
 
   // brightness encoding of a cell's velocity (0..1)
@@ -272,7 +295,10 @@ export class View3D {
         const pts = new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]);
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-        const line = new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color: 0xbbbbbb, transparent: true, opacity: 0.6 }));
+        const line = new THREE.LineLoop(
+          geo,
+          new THREE.LineBasicMaterial({ color: 0xbbbbbb, transparent: true, opacity: 0.6 }),
+        );
         line.matrixAutoUpdate = false;
         this._placeRect(line, rect, this._PAD_LIFT);
         this.armedGroup.add(line);
@@ -300,29 +326,177 @@ export class View3D {
       this.armedGroup.add(mesh);
       this._armedMeshes.set(keyStr, mesh);
     }
+
+    // the facet body shows the same score as tile colours
+    if (this.facets) this._refreshFacetColors(sequencer);
   }
 
-  // Record a strike so the corresponding armed pad flashes (called by main when a
-  // head sounds a cell).
-  strikeCell(faceId, i, j) {
-    this._struck.set(`${faceId}:${i}:${j}`, performance.now());
+  // ---- the FACET body --------------------------------------------------------
+  // Every cell is its own slightly-shrunk TILE (one InstancedMesh instance per
+  // cell). There are no grid lines to alias: the GAP between facets IS the grid.
+  // An armed cell is simply a brighter tile ("you just change the colour of the
+  // square"); a strike re-colours it and can POP it along the face normal — the
+  // surface itself plays. Tiles are lit (MeshStandard + per-instance colour), so
+  // the firefly point-lights inside bleed through the translucent body: the
+  // LED-matrix-behind-a-diffuser look of the future physical cube.
+  _buildFacets() {
+    this.surfaceStyle = 'facets'; // 'grid' | 'facets' | 'both'
+    this.facetGap = 0.12; // fraction of the cell left as gap between tiles
+    this.popAmount = 0.6; // -1 (pop INward) .. 0 (off) .. +1 (pop OUTward) on strike
+    this._FACET_LIFT = 0.003;
+    const n = this.cells;
+    this._faceIndex = new Map(this.surface.faces.map((f, k) => [f.id, k]));
+    this._facetCount = this.surface.faces.length * n * n;
+    this.facetMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, // per-instance colours carry everything
+      roughness: 0.55,
+      metalness: 0.0,
+      transparent: true,
+      opacity: this._facetOpacity(),
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.facets = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), this.facetMat, this._facetCount);
+    this.facets.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this._facetBase = new Array(this._facetCount); // id -> { m: Matrix4, n: normal, key }
+    this._facetSeq = null; // last sequencer seen, for re-colouring
+    this._struckIds = new Set(); // tiles flashed/popped last frame (to restore)
+    this._tmpCol = new THREE.Color();
+    this._tmpMat = new THREE.Matrix4();
+    this.shellGroup.add(this.facets);
+    this._rebuildFacetMatrices();
+    this._refreshFacetColors();
+    this._applySurfaceStyle();
+  }
+
+  // tile opacity follows the cube translucency dial, but never fully vanishes
+  _facetOpacity() {
+    return Math.min(1, 0.45 + 0.55 * this.cubeOpacity);
+  }
+
+  _facetIdFromKey(keyStr) {
+    const [f, i, j] = keyStr.split(':').map(Number);
+    const fi = this._faceIndex.get(f);
+    if (fi == null) return null;
+    return fi * this.cells * this.cells + j * this.cells + i;
+  }
+
+  _rebuildFacetMatrices() {
+    const n = this.cells;
+    for (let fi = 0; fi < this.surface.faces.length; fi++) {
+      const f = this.surface.faces[fi];
+      const half = f.size / 2;
+      const cell = f.size / n;
+      const s = cell * (1 - this.facetGap);
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          const cx = -half + (i + 0.5) * cell;
+          const cy = -half + (j + 0.5) * cell;
+          const P = this.surface.to3D(f, cx, cy);
+          const u = f.u,
+            v = f.v,
+            nn = f.n;
+          const L = this._FACET_LIFT;
+          const m = new THREE.Matrix4().set(
+            u[0] * s,
+            v[0] * s,
+            nn[0],
+            P[0] + nn[0] * L,
+            u[1] * s,
+            v[1] * s,
+            nn[1],
+            P[1] + nn[1] * L,
+            u[2] * s,
+            v[2] * s,
+            nn[2],
+            P[2] + nn[2] * L,
+            0,
+            0,
+            0,
+            1,
+          );
+          const id = fi * n * n + j * n + i;
+          this._facetBase[id] = { m, n: nn, key: `${f.id}:${i}:${j}` };
+          this.facets.setMatrixAt(id, m);
+        }
+      }
+    }
+    this.facets.instanceMatrix.needsUpdate = true;
+  }
+
+  // a tile's resting colour: body colour if silent, greyish-white scaled by the
+  // note's velocity if armed (returns the shared temp colour)
+  _facetColorFor(id) {
+    const rec = this._facetBase[id];
+    const vel = this._facetSeq ? this._facetSeq.armed.get(rec.key) : undefined;
+    if (vel == null) return this._tmpCol.set(this.cubeColor);
+    return this._tmpCol.copy(this._padColor).multiplyScalar(0.3 + vel * 0.7);
+  }
+
+  _refreshFacetColors(sequencer) {
+    if (sequencer) this._facetSeq = sequencer;
+    for (let id = 0; id < this._facetCount; id++) this.facets.setColorAt(id, this._facetColorFor(id));
+    this.facets.instanceColor.needsUpdate = true;
+  }
+
+  // Surface look: 'grid' (acrylic body + grid lines + glowing pads), 'facets'
+  // (tile body only — the gaps are the grid), or 'both' (tiles over the body).
+  setSurfaceStyle(style) {
+    this.surfaceStyle = style;
+    this._applySurfaceStyle();
+  }
+
+  _applySurfaceStyle() {
+    const facetsOn = this.surfaceStyle !== 'grid';
+    const bodyOn = this.surfaceStyle !== 'facets';
+    this.facets.visible = facetsOn;
+    for (const m of this.faceMeshes) m.visible = bodyOn;
+    this.gridLines.visible = this.surfaceStyle === 'grid';
+    this.armedGroup.visible = this.surfaceStyle === 'grid';
+    this.mutedGroup.visible = this.surfaceStyle === 'grid';
+  }
+
+  setFacetGap(g) {
+    this.facetGap = Math.max(0, Math.min(0.5, g));
+    this._rebuildFacetMatrices();
+  }
+
+  setPopAmount(p) {
+    this.popAmount = Math.max(-1, Math.min(1, p));
+  }
+
+  // Record a strike so the corresponding armed pad/facet flashes (called by main
+  // when a head sounds a cell). `color` = the striking head's instrument colour,
+  // used when flashMode === 'instrument'.
+  strikeCell(faceId, i, j, color = null) {
+    this._struck.set(`${faceId}:${i}:${j}`, { t: performance.now(), color });
   }
 
   // Live-update one pad's brightness while the velocity gesture drags (cheap:
   // no rebuild; the full refresh happens once on release).
   setPadVelocity(keyStr, v) {
     const mesh = this._armedMeshes.get(keyStr);
-    if (!mesh) return;
-    mesh.userData.baseGlow = this._padGlow(v);
-    mesh.material.emissiveIntensity = mesh.userData.baseGlow;
+    if (mesh) {
+      mesh.userData.baseGlow = this._padGlow(v);
+      mesh.material.emissiveIntensity = mesh.userData.baseGlow;
+    }
+    if (this.facets && this.facets.visible) {
+      const id = this._facetIdFromKey(keyStr);
+      if (id != null) {
+        this.facets.setColorAt(id, this._tmpCol.copy(this._padColor).multiplyScalar(0.3 + v * 0.7));
+        this.facets.instanceColor.needsUpdate = true;
+      }
+    }
   }
 
   // Re-tint a head's emissive colour (e.g. after its instrument changes).
   setHeadColor(index, color) {
     const c = new THREE.Color(color);
     for (const mesh of this.headPools[index]) mesh.material.emissive.copy(c);
-    this.headLeds[index].material.emissive.copy(c);
+    for (const led of this.headLeds[index]) led.material.emissive.copy(c);
     this.headInners[index].material.emissive.copy(c);
+    this.headRings[index].material.color.copy(c);
+    this.headLights[index].color.copy(c);
   }
 
   // Raycast pick at screen coords. Heads take priority over cells. Returns one of
@@ -339,22 +513,37 @@ export class View3D {
     // heads first (only currently-visible pieces, whatever the head style)
     const headMeshes = [];
     for (const pool of this.headPools) for (const m of pool) if (m.visible) headMeshes.push(m);
-    for (const m of this.headLeds) if (m.visible) headMeshes.push(m);
+    for (const arr of this.headLeds) for (const m of arr) if (m.visible) headMeshes.push(m);
     for (const m of this.headInners) if (m.visible) headMeshes.push(m);
+    for (const m of this.headRings) if (m.visible) headMeshes.push(m);
     const hHit = this._ray.intersectObjects(headMeshes, false);
     if (hHit.length) return { type: 'head', index: hHit[0].object.userData.index };
 
+    // facet tiles (when the facet body is on, the tiles ARE the buttons)
+    if (this.facets.visible) {
+      const tHit = this._ray.intersectObject(this.facets, false);
+      if (tHit.length) {
+        const id = tHit[0].instanceId;
+        const n = this.cells;
+        const fi = Math.floor(id / (n * n));
+        const rem = id - fi * n * n;
+        return { type: 'cell', faceId: this.surface.faces[fi].id, i: rem % n, j: Math.floor(rem / n) };
+      }
+    }
+
     // then faces -> convert hit point to face-local (x,y) -> cell index
-    const fHit = this._ray.intersectObjects(this.faceMeshes, false);
-    if (fHit.length) {
-      const hit = fHit[0];
-      const faceId = hit.object.userData.faceId;
-      const local = hit.object.worldToLocal(hit.point.clone()); // plane-local = (u,v)
-      const f = this.surface.faceById(faceId);
-      const half = f.size / 2;
-      const cell = f.size / this.cells;
-      const clampIdx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cell)));
-      return { type: 'cell', faceId, i: clampIdx(local.x), j: clampIdx(local.y) };
+    if (this.faceMeshes[0].visible) {
+      const fHit = this._ray.intersectObjects(this.faceMeshes, false);
+      if (fHit.length) {
+        const hit = fHit[0];
+        const faceId = hit.object.userData.faceId;
+        const local = hit.object.worldToLocal(hit.point.clone()); // plane-local = (u,v)
+        const f = this.surface.faceById(faceId);
+        const half = f.size / 2;
+        const cell = f.size / this.cells;
+        const clampIdx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cell)));
+        return { type: 'cell', faceId, i: clampIdx(local.x), j: clampIdx(local.y) };
+      }
     }
     return null;
   }
@@ -402,27 +591,50 @@ export class View3D {
     });
 
     // Alternative head LOOKS (selectable live; see setHeadStyle):
-    //   'led'    — a small glowing DISK centred on the head's current cell, like
-    //              a single LED of an LED-cube. Snapped to the cell, so it never
-    //              straddles an edge (no folding needed).
-    //   'inner'  — a glowing SPHERE riding just INSIDE the cube, visible through
-    //              the translucent body: the "firefly in the lantern".
+    //   'led'    — the head lights the FIXED LEDs of the (future, physical) LED
+    //              matrix: the TWO leds bracketing its continuous position glow,
+    //              brightness following a Fechner-law (log) compression of
+    //              proximity. The motion is continuous; the lights are discrete.
+    //   'inner'  — the firefly: a tiny emissive core + a POINT LIGHT riding just
+    //              inside the cube, bleeding through the translucent body and
+    //              facet tiles (the LED-behind-a-diffuser effect).
     //   'square' — the original full-cell square (folds around edges).
     this.headStyle = 'led';
-    this._INNER_DEPTH = 0.18; // how far inside the cube the inner sphere rides
+    this._INNER_DEPTH = 0.18; // how far inside the cube the firefly rides
     this.headLeds = this.balls.map((b, bi) => {
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0x000000,
-        emissive: new THREE.Color(b.color),
-        emissiveIntensity: this._headGlow,
-        roughness: 0.5,
-        metalness: 0.0,
+      const arr = [];
+      for (let k = 0; k < 2; k++) {
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: new THREE.Color(b.color),
+          emissiveIntensity: this._headGlow,
+          roughness: 0.5,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.95,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.15, 24), mat);
+        mesh.matrixAutoUpdate = false;
+        mesh.visible = false;
+        mesh.userData = { pick: 'head', index: bi };
+        this.cubeGroup.add(mesh);
+        arr.push(mesh);
+      }
+      return arr;
+    });
+    // paused-head contour: a thicker coloured RING on the head's cell — the head
+    // goes ghost-transparent but stays clearly findable (and clickable to wake).
+    this.headRings = this.balls.map((b, bi) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(b.color),
         transparent: true,
-        opacity: 0.95,
-        depthWrite: false,
+        opacity: 0.9,
         side: THREE.DoubleSide,
+        depthWrite: false,
       });
-      const mesh = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.3, 28), mat);
+      const mesh = new THREE.Mesh(new THREE.RingGeometry(cell * 0.17, cell * 0.26, 28), mat);
       mesh.matrixAutoUpdate = false;
       mesh.visible = false;
       mesh.userData = { pick: 'head', index: bi };
@@ -436,12 +648,22 @@ export class View3D {
         emissiveIntensity: this._headGlow,
         roughness: 0.4,
         metalness: 0.0,
+        transparent: true,
+        opacity: 1,
       });
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(cell * 0.3, 20, 14), mat);
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(cell * 0.14, 18, 12), mat);
       mesh.visible = false;
       mesh.userData = { pick: 'head', index: bi };
       this.cubeGroup.add(mesh);
       return mesh;
+    });
+    // the firefly's LIGHT: spreads over the translucent body — the closer the
+    // head rides to a face, the hotter the glow pooled on it
+    this.headLights = this.balls.map((b) => {
+      const L = new THREE.PointLight(new THREE.Color(b.color), 1.6, 3.4, 2);
+      L.visible = false;
+      this.cubeGroup.add(L);
+      return L;
     });
   }
 
@@ -450,8 +672,10 @@ export class View3D {
   setHeadStyle(style) {
     this.headStyle = style;
     for (const pool of this.headPools) for (const m of pool) m.visible = false;
-    for (const m of this.headLeds) m.visible = false;
+    for (const arr of this.headLeds) for (const m of arr) m.visible = false;
+    for (const m of this.headRings) m.visible = false;
     for (const m of this.headInners) m.visible = false;
+    for (const L of this.headLights) L.visible = false;
   }
 
   // Place a flat disk (unit-scale geometry) at face-local (cx,cy), aligned to
@@ -597,6 +821,17 @@ export class View3D {
     this._spinY = 0;
     this.velocityHandler = null; // (cellRes, delta01, phase) set by controls
     this._velCell = null; // cell being velocity-shaped (long-press active)
+    this._pts = new Map(); // active pointers, for the pinch-zoom gesture
+    this._pinchDist = 0;
+    // mouse wheel zoom (trackpad pinch arrives as a wheel event too)
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.zoomBy(Math.exp(e.deltaY * 0.0012));
+      },
+      { passive: false },
+    );
     let px = 0,
       py = 0,
       downX = 0,
@@ -607,6 +842,15 @@ export class View3D {
       downButton = 0,
       velTimer = 0;
     el.addEventListener('pointerdown', (e) => {
+      this._pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this._pts.size === 2) {
+        // second finger lands: this is a PINCH, not a drag/long-press
+        clearTimeout(velTimer);
+        this._velCell = null;
+        const p = [...this._pts.values()];
+        this._pinchDist = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+        return;
+      }
       this._dragging = true;
       downButton = e.button;
       this._spinX = this._spinY = 0; // grabbing the cube stops it
@@ -627,6 +871,8 @@ export class View3D {
       }
     });
     window.addEventListener('pointerup', (e) => {
+      this._pts.delete(e.pointerId);
+      this._pinchDist = 0;
       clearTimeout(velTimer);
       if (this._velCell) {
         this.velocityHandler?.(this._velCell, 0, 'end');
@@ -646,6 +892,15 @@ export class View3D {
       this._dragging = false;
     });
     window.addEventListener('pointermove', (e) => {
+      if (this._pts.has(e.pointerId)) this._pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (this._pts.size === 2) {
+        // pinch zoom (the iPad gesture)
+        const p = [...this._pts.values()];
+        const d = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+        if (this._pinchDist > 0 && d > 0) this.zoomBy(this._pinchDist / d);
+        this._pinchDist = d;
+        return;
+      }
       if (!this._dragging || this._useDeviceOrientation) return;
       const nowT = performance.now();
       const dx = e.clientX - px,
@@ -667,6 +922,11 @@ export class View3D {
       this._spinY = 0.7 * this._spinY + 0.3 * ((dx * 0.01 * 1000) / dtm);
       this._spinX = 0.7 * this._spinX + 0.3 * ((dy * 0.01 * 1000) / dtm);
     });
+  }
+
+  // dolly the camera in/out (wheel or pinch), clamped to sane bounds
+  zoomBy(factor) {
+    this.camera.position.z = Math.max(2.2, Math.min(14, this.camera.position.z * factor));
   }
 
   setDeviceOrientation(alphaDeg, betaDeg, gammaDeg) {
@@ -697,7 +957,11 @@ export class View3D {
     if (this._lastSync == null) this._lastSync = now;
     const dts = Math.min(0.1, (now - this._lastSync) / 1000);
     this._lastSync = now;
-    if (!this._dragging && !this._useDeviceOrientation && (Math.abs(this._spinX) > 1e-4 || Math.abs(this._spinY) > 1e-4)) {
+    if (
+      !this._dragging &&
+      !this._useDeviceOrientation &&
+      (Math.abs(this._spinX) > 1e-4 || Math.abs(this._spinY) > 1e-4)
+    ) {
       this.cubeGroup.rotation.y += this._spinY * dts;
       this.cubeGroup.rotation.x += this._spinX * dts;
       const damp = Math.exp(-1.8 * dts);
@@ -705,20 +969,62 @@ export class View3D {
       this._spinY *= damp;
     }
 
-    // flash struck armed pads: the strike pushes the amber pad to bright WHITE
-    // (a colour change, not just brightness, so it reads at any base velocity)
+    // forget strikes once their flash has fully decayed
+    for (const [key, rec] of this._struck) if (now - rec.t > 400) this._struck.delete(key);
+
+    // flash struck armed pads (grid mode): the strike pushes the greyish pad to
+    // a saturated instrument colour (or pure white) — a colour change, not just
+    // brightness, so it reads at any base velocity
     for (const [key, mesh] of this._armedMeshes) {
-      const t = this._struck.get(key);
-      const k = t != null && now - t < 260 ? 1 - (now - t) / 260 : 0;
+      const rec = this._struck.get(key);
+      const k = rec && now - rec.t < 260 ? 1 - (now - rec.t) / 260 : 0;
       const base = mesh.userData.baseGlow ?? this._armedBaseGlow;
       mesh.material.emissiveIntensity = base + k * 5.0;
       if (k > 0) {
-        mesh.material.emissive.copy(this._padColor).lerp(this._padFlash, k);
+        const fc = this.flashMode === 'instrument' && rec.color ? this._flashTmp.set(rec.color) : this._padFlash;
+        mesh.material.emissive.copy(this._padColor).lerp(fc, k);
         mesh.userData._flashing = true;
       } else if (mesh.userData._flashing) {
         mesh.material.emissive.copy(this._padColor);
         mesh.userData._flashing = false;
       }
+    }
+
+    // facet strikes: re-colour the tile and POP it along its normal (out or in,
+    // per popAmount) — the surface itself plays the note
+    if (this.facets.visible) {
+      let colDirty = false,
+        matDirty = false;
+      for (const id of this._struckIds) {
+        this.facets.setColorAt(id, this._facetColorFor(id));
+        this.facets.setMatrixAt(id, this._facetBase[id].m);
+        colDirty = matDirty = true;
+      }
+      this._struckIds.clear();
+      for (const [key, rec] of this._struck) {
+        const age = now - rec.t;
+        if (age >= 320) continue;
+        const id = this._facetIdFromKey(key);
+        if (id == null) continue;
+        const k2 = 1 - age / 320;
+        const fc =
+          this.flashMode === 'instrument' && rec.color ? this._flashTmp.set(rec.color) : this._flashTmp.set(0xffffff);
+        this.facets.setColorAt(id, this._facetColorFor(id).lerp(fc, k2));
+        colDirty = true;
+        if (this.popAmount) {
+          const fb = this._facetBase[id];
+          const off = this.popAmount * 0.16 * k2;
+          this._tmpMat.copy(fb.m);
+          this._tmpMat.elements[12] += fb.n[0] * off;
+          this._tmpMat.elements[13] += fb.n[1] * off;
+          this._tmpMat.elements[14] += fb.n[2] * off;
+          this.facets.setMatrixAt(id, this._tmpMat);
+          matDirty = true;
+        }
+        this._struckIds.add(id);
+      }
+      if (colDirty) this.facets.instanceColor.needsUpdate = true;
+      if (matDirty) this.facets.instanceMatrix.needsUpdate = true;
     }
     for (let i = 0; i < this.balls.length; i++) {
       const b = this.balls[i];
@@ -726,44 +1032,88 @@ export class View3D {
       const dt = now - b.flash;
       const k = dt < 220 ? 1 - dt / 220 : 0; // hit pulse 1 -> 0
       // A hit pulses BRIGHTNESS only (the head flares like a struck LED); its
-      // colour — the instrument identity — never changes. A PAUSED (muted) head
-      // goes dim: still visible on its track, clearly asleep.
-      const glow = b.muted ? 0.12 : this._headGlow + k * 1.8;
+      // colour — the instrument identity — never changes. A PAUSED head goes
+      // ghost-transparent with a thicker coloured contour: clearly asleep, still
+      // findable, still clickable to wake. (Pausing stops ONLY this head — the
+      // notes on its track stay live for the perpendicular band.)
+      const glow = this._headGlow + k * 1.8;
+      const ring = this.headRings[i];
 
       if (this.headStyle === 'led') {
-        // a single LED: a disk snapped to the centre of the current cell
+        // continuous motion, discrete lights: the head excites the two fixed
+        // LEDs bracketing its position; brightness = Fechner-law (log)
+        // compression of the linear proximity weight — a faithful preview of
+        // the physical LED-matrix cube.
         for (const m of pool) m.visible = false;
         this.headInners[i].visible = false;
+        this.headLights[i].visible = false;
         const f = this.surface.faceById(b.faceId);
         const half = f.size / 2;
         const cellSz = f.size / this.cells;
         const idx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cellSz)));
-        const cx = -half + (idx(b.x) + 0.5) * cellSz;
-        const cy = -half + (idx(b.y) + 0.5) * cellSz;
-        const led = this.headLeds[i];
-        this._placeOnFace(led, b.faceId, cx, cy, 0.008);
-        led.material.emissiveIntensity = glow;
+        const centre = (kk) => -half + (kk + 0.5) * cellSz;
+        const alongX = Math.abs(b.vx) >= Math.abs(b.vy);
+        const p = alongX ? b.x : b.y; // continuous coordinate along the motion
+        const qc = centre(idx(alongX ? b.y : b.x)); // rail coordinate, snapped
+        const s = (p + half) / cellSz - 0.5; // position in "LED units"
+        const k0 = Math.floor(s);
+        const frac = s - k0;
+        const leds = this.headLeds[i];
+        for (let m2 = 0; m2 < 2; m2++) {
+          const led = leds[m2];
+          const kk = k0 + m2;
+          const w = m2 === 0 ? 1 - frac : frac; // linear proximity weight
+          if (kk < 0 || kk >= this.cells || w < 0.02) {
+            led.visible = false;
+            continue;
+          }
+          const cx = alongX ? centre(kk) : qc;
+          const cy = alongX ? qc : centre(kk);
+          this._placeOnFace(led, b.faceId, cx, cy, 0.009);
+          led.material.emissiveIntensity = glow * (Math.log1p(9 * w) / Math.log1p(9));
+          led.material.opacity = b.muted ? 0.15 : 0.95;
+        }
+        if (b.muted) {
+          const kk = Math.max(0, Math.min(this.cells - 1, Math.round(s)));
+          this._placeOnFace(ring, b.faceId, alongX ? centre(kk) : qc, alongX ? qc : centre(kk), 0.011);
+        } else ring.visible = false;
       } else if (this.headStyle === 'inner') {
-        // the firefly: a glowing sphere riding just inside the cube
+        // the firefly: a point light + tiny core riding just inside the cube.
+        // Clamping the position into the box keeps it from poking out while
+        // folding around an edge (no more escape attempts).
         for (const m of pool) m.visible = false;
-        this.headLeds[i].visible = false;
+        for (const led of this.headLeds[i]) led.visible = false;
+        ring.visible = false;
         const f = this.surface.faceById(b.faceId);
         const P = this.surface.to3D(f, b.x, b.y);
         const d = this._INNER_DEPTH;
-        const s = this.headInners[i];
-        s.position.set(P[0] - f.n[0] * d, P[1] - f.n[1] * d, P[2] - f.n[2] * d);
-        s.visible = true;
-        s.material.emissiveIntensity = glow;
+        const lim = f.size / 2 - d;
+        const cl = (c) => Math.max(-lim, Math.min(lim, c));
+        const px = cl(P[0] - f.n[0] * d),
+          py = cl(P[1] - f.n[1] * d),
+          pz = cl(P[2] - f.n[2] * d);
+        const core = this.headInners[i];
+        core.position.set(px, py, pz);
+        core.visible = true;
+        core.material.emissiveIntensity = b.muted ? 0.3 : this._headGlow + k * 2.2;
+        core.material.opacity = b.muted ? 0.25 : 1;
+        const L = this.headLights[i];
+        L.position.set(px, py, pz);
+        L.visible = true;
+        L.intensity = b.muted ? 0.05 : 1.6 + k * 6.0;
       } else {
         // 'square': the original folding full-cell head
-        this.headLeds[i].visible = false;
+        for (const led of this.headLeds[i]) led.visible = false;
         this.headInners[i].visible = false;
+        this.headLights[i].visible = false;
+        ring.visible = false;
         const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
         for (let k2 = 0; k2 < pool.length; k2++) {
           const mesh = pool[k2];
           if (k2 < pieces.length) {
             this._placeRect(mesh, pieces[k2], this._lift);
-            mesh.material.emissiveIntensity = glow;
+            mesh.material.emissiveIntensity = b.muted ? 0.6 : glow;
+            mesh.material.opacity = b.muted ? 0.14 : 0.5;
           } else {
             mesh.visible = false;
           }

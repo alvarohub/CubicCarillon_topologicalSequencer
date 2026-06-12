@@ -109,6 +109,10 @@
       .ui-toggle:hover {
         background: rgba(40, 54, 76, 0.9);
       }
+      .ui-toggle.right {
+        left: auto;
+        right: 12px;
+      }
       .ui-panel {
         position: fixed;
         top: 0;
@@ -129,6 +133,16 @@
         user-select: none;
       }
       .ui-panel.open {
+        transform: translateX(0);
+      }
+      .ui-panel.right {
+        left: auto;
+        right: 0;
+        border-right: 0;
+        border-left: 1px solid #232f44;
+        transform: translateX(100%);
+      }
+      .ui-panel.right.open {
         transform: translateX(0);
       }
       .ui-sec {
@@ -300,13 +314,13 @@
 
     <div id="hud">
       <div>
-        <b>drag</b> rotate &nbsp;·&nbsp; <b>click</b> head=pause track / cell=note &nbsp;·&nbsp; <b>hold a pad + drag ↑↓</b>
-        velocity &nbsp;·&nbsp; <b>right-click</b> head=instrument
+        <b>drag</b> rotate &nbsp;·&nbsp; <b>wheel/pinch</b> zoom &nbsp;·&nbsp; <b>click</b> head=pause head / cell=note
+        &nbsp;·&nbsp; <b>hold a pad + drag ↑↓</b> velocity &nbsp;·&nbsp; <b>right-click</b> head=instrument
       </div>
       <div>
-        <b>space</b> pause &nbsp;·&nbsp; <b>m</b> step/continuous &nbsp;·&nbsp; <b>g</b> gravity &nbsp;·&nbsp; <b>r</b>
-        rail/derail &nbsp;·&nbsp; <b>a</b> align bar &nbsp;·&nbsp; <b>+ -</b> BPM &nbsp;·&nbsp; <b>[ ]</b> opacity
-        &nbsp;·&nbsp; phone: <b>tilt</b>
+        <b>space</b> pause &nbsp;·&nbsp; <b>m</b> step/continuous &nbsp;·&nbsp; <b>g</b> gravity &nbsp;·&nbsp;
+        <b>r</b> rail/derail &nbsp;·&nbsp; <b>a</b> align bar &nbsp;·&nbsp; <b>+ -</b> BPM &nbsp;·&nbsp;
+        <b>[ ]</b> opacity &nbsp;·&nbsp; phone: <b>tilt</b>
       </div>
       <div id="status">running</div>
     </div>

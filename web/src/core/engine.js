@@ -116,7 +116,7 @@ export class Engine {
     if (this.stepMode) return []; // step mode advances via tick(), not here
     const all = [];
     for (const b of this.balls) {
-      if (b.muted) continue; // a muted track's head freezes (its slice is off)
+      if (b.muted) continue; // a paused head freezes (its notes stay live for the other band)
       const face = this.surface.faceById(b.faceId);
       let acc = this._accel(face);
       if (this.railed) acc = this._railProject(b, acc);
@@ -134,7 +134,7 @@ export class Engine {
     if (this.paused) return [];
     const all = [];
     for (const b of this.balls) {
-      if (b.muted) continue; // a muted track's head freezes (its slice is off)
+      if (b.muted) continue; // a paused head freezes (its notes stay live for the other band)
       b._stepAcc = (b._stepAcc || 0) + (b.rate || 1);
       let guard = 0;
       while (b._stepAcc >= 1 - 1e-9 && guard++ < 16) {

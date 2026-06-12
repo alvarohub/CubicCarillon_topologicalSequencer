@@ -1,9 +1,9 @@
 // io/ui.js
 //
-// The product face: a collapsible left panel (iPad-plugin style) with the
-// controls that used to live only on the keyboard. Pure DOM — it only TALKS to
-// the engine/view/audio/midi adapters, the core never sees it. The keyboard
-// shortcuts keep working; the panel just makes them visible and touchable.
+// The product face: two collapsible panels. LEFT = playing & musical parameters
+// (transport, sound, tracks). RIGHT = visualisation parameters (surface look,
+// head look, colours, flash). Pure DOM — it only TALKS to the engine/view/
+// audio/midi adapters, the core never sees it. Keyboard shortcuts keep working.
 
 import { MELODIC, DRUMS, COLLISION_SOUNDS } from './audio.js';
 
@@ -24,9 +24,9 @@ export class UIPanel {
 
   // ---- DOM scaffolding -----------------------------------------------------
   _build() {
-    // hamburger toggle (always visible)
+    // hamburger toggle (always visible) — the LEFT (music) panel
     this.toggleBtn = el('button', 'ui-toggle', '☰');
-    this.toggleBtn.title = 'controls';
+    this.toggleBtn.title = 'music & transport';
     document.body.appendChild(this.toggleBtn);
 
     this.panel = el('div', 'ui-panel');
@@ -36,16 +36,28 @@ export class UIPanel {
       this.refresh();
     });
 
+    // the RIGHT (visuals) panel
+    this.toggleBtnR = el('button', 'ui-toggle right', '◑');
+    this.toggleBtnR.title = 'visuals';
+    document.body.appendChild(this.toggleBtnR);
+
+    this.panelR = el('div', 'ui-panel right');
+    document.body.appendChild(this.panelR);
+    this.toggleBtnR.addEventListener('click', () => {
+      this.panelR.classList.toggle('open');
+      this.refresh();
+    });
+
     this._buildTransport();
     this._buildSound();
-    this._buildCube();
     this._buildTracks();
+    this._buildVisuals();
   }
 
-  _section(title) {
+  _section(title, panel = this.panel) {
     const s = el('div', 'ui-sec');
     s.appendChild(el('div', 'ui-sec-title', title));
-    this.panel.appendChild(s);
+    panel.appendChild(s);
     return s;
   }
 
@@ -87,11 +99,10 @@ export class UIPanel {
     row3.append(
       button('Align bar', () => {
         this.engine.alignHeads();
-        this.controls.refreshMutes();
+        this.refresh();
       }),
       button('Swap H↔V', () => {
         this.engine.swapBands();
-        this.controls.refreshMutes(); // slices follow the new directions
         this.refresh();
       }),
     );
@@ -101,7 +112,6 @@ export class UIPanel {
     row4.append(
       button('Reset heads', () => {
         this.engine.resetHeads(); // every head back to its spawn cell + direction
-        this.controls.refreshMutes();
         this.refresh();
       }),
       button('Reset notes', () => {
@@ -165,9 +175,45 @@ export class UIPanel {
     this.midi.selectOutput(outs[0].id);
   }
 
-  // ---- Cube -----------------------------------------------------------------
-  _buildCube() {
-    const s = this._section('Cube');
+  // ---- Visuals (RIGHT panel) -------------------------------------------------
+  // Everything about how the instrument LOOKS, separated from how it plays.
+  _buildVisuals() {
+    const s = this._section('Surface', this.panelR);
+
+    const rowS = el('div', 'ui-row');
+    rowS.appendChild(el('label', 'ui-label', 'Body'));
+    this.surfaceSel = el('select', 'ui-select');
+    [
+      ['facets', 'Facet tiles'],
+      ['grid', 'Acrylic + grid'],
+      ['both', 'Tiles + acrylic'],
+    ].forEach(([v, l]) => this.surfaceSel.appendChild(option(l, v)));
+    this.surfaceSel.addEventListener('change', () => this.view.setSurfaceStyle(this.surfaceSel.value));
+    rowS.appendChild(this.surfaceSel);
+    s.appendChild(rowS);
+
+    const rowG = el('div', 'ui-row');
+    rowG.appendChild(el('label', 'ui-label', 'Gap'));
+    this.gapInput = el('input', 'ui-range');
+    this.gapInput.type = 'range';
+    this.gapInput.min = 0.02;
+    this.gapInput.max = 0.4;
+    this.gapInput.step = 0.01;
+    this.gapInput.addEventListener('input', () => this.view.setFacetGap(+this.gapInput.value));
+    rowG.appendChild(this.gapInput);
+    s.appendChild(rowG);
+
+    const rowP = el('div', 'ui-row');
+    rowP.appendChild(el('label', 'ui-label', 'Pop'));
+    this.popInput = el('input', 'ui-range');
+    this.popInput.type = 'range';
+    this.popInput.min = -1;
+    this.popInput.max = 1;
+    this.popInput.step = 0.05;
+    this.popInput.title = 'how far a struck tile pops: left = inward, right = outward, centre = off';
+    this.popInput.addEventListener('input', () => this.view.setPopAmount(+this.popInput.value));
+    rowP.appendChild(this.popInput);
+    s.appendChild(rowP);
 
     const rowO = el('div', 'ui-row');
     rowO.appendChild(el('label', 'ui-label', 'Opacity'));
@@ -188,18 +234,41 @@ export class UIPanel {
     rowC.appendChild(this.colorInput);
     s.appendChild(rowC);
 
-    // head look: LED disk on the face / firefly inside the cube / folding square
+    const rowGC = el('div', 'ui-row');
+    rowGC.appendChild(el('label', 'ui-label', 'Grid'));
+    this.gridColorInput = el('input', 'ui-color');
+    this.gridColorInput.type = 'color';
+    this.gridColorInput.value = '#3a4f70';
+    this.gridColorInput.addEventListener('input', () => this.view.setGridColor(this.gridColorInput.value));
+    rowGC.appendChild(this.gridColorInput);
+    s.appendChild(rowGC);
+
+    const s2 = this._section('Notes & heads', this.panelR);
+
+    // strike colour: saturated instrument colour, or pure white
+    const rowF = el('div', 'ui-row');
+    rowF.appendChild(el('label', 'ui-label', 'Strike'));
+    this.flashSel = el('select', 'ui-select');
+    [
+      ['instrument', 'Instrument colour'],
+      ['white', 'Pure white'],
+    ].forEach(([v, l]) => this.flashSel.appendChild(option(l, v)));
+    this.flashSel.addEventListener('change', () => this.view.setFlashMode(this.flashSel.value));
+    rowF.appendChild(this.flashSel);
+    s2.appendChild(rowF);
+
+    // head look: LED pair on the surface / firefly light inside / folding square
     const rowH = el('div', 'ui-row');
     rowH.appendChild(el('label', 'ui-label', 'Heads'));
     this.headSel = el('select', 'ui-select');
     [
-      ['led', 'LED disk'],
-      ['inner', 'Inside (firefly)'],
+      ['led', 'LEDs (Fechner)'],
+      ['inner', 'Firefly light'],
       ['square', 'Full square'],
     ].forEach(([v, l]) => this.headSel.appendChild(option(l, v)));
     this.headSel.addEventListener('change', () => this.view.setHeadStyle(this.headSel.value));
     rowH.appendChild(this.headSel);
-    s.appendChild(rowH);
+    s2.appendChild(rowH);
   }
 
   // ---- Tracks ---------------------------------------------------------------
@@ -241,7 +310,7 @@ export class UIPanel {
       row.appendChild(sel);
 
       const pauseBtn = el('button', 'ui-btn ui-track-pause', '❚❚');
-      pauseBtn.title = 'pause/resume this track (same as clicking the head)';
+      pauseBtn.title = 'pause/resume this head (the notes stay live for the other band)';
       pauseBtn.addEventListener('click', () => {
         this.controls.toggleHeadPause(i);
         this.refresh();
@@ -272,7 +341,6 @@ export class UIPanel {
       rst.title = 'reset this head to its spawn position';
       rst.addEventListener('click', () => {
         this.engine.resetHead(ball);
-        this.controls.refreshMutes();
         this.refresh();
       });
       sub.appendChild(rst);
@@ -291,8 +359,12 @@ export class UIPanel {
     this.railBtn.textContent = this.engine.railed ? 'Derail' : 'Rail';
     this.bpmInput.value = this.engine.bpm;
     this.collSel.value = this.audio.collisionSound;
+    this.surfaceSel.value = this.view.surfaceStyle;
+    this.gapInput.value = this.view.facetGap;
+    this.popInput.value = this.view.popAmount;
     this.opacityInput.value = this.view.cubeOpacity;
     this.colorInput.value = this.view.cubeColor;
+    this.flashSel.value = this.view.flashMode;
     this.headSel.value = this.view.headStyle;
     this.chanSel.value = this.midi.channel;
     this.midiSel.disabled = !this.midi.enabled;
@@ -303,7 +375,7 @@ export class UIPanel {
       r.kindEl.textContent = ball.kind === 'V' ? 'V' : 'H';
       r.rateSel.value = String(ball.rate);
       r.pauseBtn.textContent = ball.muted ? '▶' : '❚❚';
-      r.box.classList.toggle('muted', !!ball.muted);
+      r.pauseBtn.classList.toggle('on', !!ball.muted);
     });
   }
 }

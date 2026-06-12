@@ -68,8 +68,8 @@ export class Controls {
 
   // route taps from the view's raycaster:
   //   cell        -> toggle the score
-  //   head CLICK  -> pause/unpause that head (its whole slice mutes — the head
-  //                  IS the track's on/off switch)
+  //   head CLICK  -> pause/unpause that head (ONLY the head stops — the notes on
+  //                  its track stay live for the perpendicular band)
   //   head RIGHT-CLICK -> instrument menu
   _wirePicking() {
     this.view.pickHandler = (res, ev) => {
@@ -115,23 +115,14 @@ export class Controls {
     };
   }
 
-  // Pause/unpause one head. A paused head stops moving AND its slice goes
-  // silent for every head (the cells it patrols are muted in both directions).
+  // Pause/unpause one head. ONLY the head stops: its armed cells keep sounding
+  // for the heads of the perpendicular band (the score is shared territory).
+  // The view shows the paused head ghost-transparent with a coloured contour.
   toggleHeadPause(index) {
     const ball = this.engine.balls[index];
     ball.muted = !ball.muted;
-    this.refreshMutes();
-    this.statusFn(`head ${index} ${ball.muted ? 'paused (track muted)' : 'running'}`);
+    this.statusFn(`head ${index} ${ball.muted ? 'paused' : 'running'}`);
     this._notify();
-  }
-
-  // Recompute the muted slices from the currently paused heads and push the
-  // result to the sequencer (silence) and the view (dark strips + contours).
-  refreshMutes() {
-    const slices = this.engine.balls.filter((b) => b.muted).map((b) => this.engine.traceTrack(b));
-    this.sequencer.setMutedSlices(slices);
-    this.view.refreshMutedCells(this.sequencer.mutedCells);
-    this.view.refreshArmedCells(this.sequencer);
   }
 
   _openInstrumentMenu(headIndex, x, y) {

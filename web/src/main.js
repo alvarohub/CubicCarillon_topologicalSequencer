@@ -28,6 +28,10 @@ const CELL = (2 * HALF) / CELLS;
 const center = (i) => -HALF + (i + 0.5) * CELL; // cell-centre coordinate
 
 // All tracks start visible on the +Z face (id 4) so it reads like a sequencer.
+// Spawn layout (also the "reset heads" target): the H heads line up along the
+// face's VERTICAL axis (the centre column), the V heads along the BOTTOM EDGE
+// row (parallel to x). Two distinct lines that don't share the centre crossing,
+// so no two heads ever start stacked on the same cell.
 const FACE = 4;
 const H_COLORS = ['#ff5d5d', '#ff8b3d', '#ffd24d', '#ff6db0'];
 const V_COLORS = ['#5dd4ff', '#5dff9b', '#6d8bff', '#b48bff'];
@@ -46,6 +50,12 @@ const V_TRACKS = [
   { cell: 6, speed: 0.9 },
 ];
 
+// First impression = a real little band: the whole H band plays the sampled
+// PIANO; the V band is the rhythm section (one drum each). Only head 0 starts
+// running — press run and it just works; wake the others one by one.
+const PIANO = 6; // MELODIC index of the sampled piano (io/audio.js)
+const DRUM0 = 7; // first drum index (MELODIC.length)
+
 const balls = [];
 let idx = 0;
 for (let t = 0; t < H_TRACKS.length; t++) {
@@ -54,13 +64,13 @@ for (let t = 0; t < H_TRACKS.length; t++) {
     new Ball({
       index: idx++,
       faceId: FACE,
-      x: -HALF + CELL * 0.5,
-      y: center(tr.cell), // start at left edge of its row
+      x: center(4), // the vertical axis (centre column)
+      y: center(tr.cell),
       vx: tr.speed,
       vy: 0,
       color: H_COLORS[t % H_COLORS.length],
       kind: 'H', // horizontal band: pitch comes from its ROW
-      instrument: t % 6,
+      instrument: PIANO,
     }),
   );
 }
@@ -71,15 +81,16 @@ for (let t = 0; t < V_TRACKS.length; t++) {
       index: idx++,
       faceId: FACE,
       x: center(tr.cell),
-      y: -HALF + CELL * 0.5, // start at bottom of its column
+      y: center(0), // the bottom-edge row (parallel to x)
       vx: 0,
       vy: tr.speed,
       color: V_COLORS[t % V_COLORS.length],
       kind: 'V', // transversal band: pitch comes from its COLUMN
-      instrument: t % 6,
+      instrument: DRUM0 + (t % 4),
     }),
   );
 }
+for (const b of balls) b.muted = b.index !== 0; // only head 0 starts awake
 
 const engine = new Engine(surface, balls, CELLS);
 engine.collisionRadius = CELL * 0.55; // two heads "meet" within ~one cell
@@ -87,7 +98,7 @@ engine.stepMode = true; // START on the clocked grid (no gravity by default);
 // heads spawn already lined up as a bar, so the first impression is a clean,
 // readable step sequencer — continuous/gravity/derail are the wild modes.
 const sequencer = new Sequencer({ cells: CELLS });
-sequencer.seedDefaultPattern(); // so the cube sings on first run
+// the score starts EMPTY — a blank instrument, ready to be played
 
 // ---- adapters ----
 const audio = new AudioOut();
@@ -122,7 +133,7 @@ function handleEnter(ev) {
   if (flags.noteSound) audio.play(note);
   if (midi.enabled) midi.note(note); // mirror to real synths
   view.flash(ev.ball); // the reading head pulses brighter (brightness only, not hue)
-  view.strikeCell(ev.faceId, ev.i, ev.j); // flash the armed pad
+  view.strikeCell(ev.faceId, ev.i, ev.j, ev.ball.color); // flash the pad/facet (instrument colour)
 }
 
 function frame(now) {
