@@ -100,6 +100,16 @@ export class View3D {
       this.scene.add(L);
       return L;
     });
+
+    // A dedicated key light straight from ABOVE — the top facet (+Y) faces the
+    // ceiling and caught almost nothing from the side points, so it read dark.
+    // A directional light (parallel rays "at infinity") pointing down lights it
+    // evenly regardless of cube size; it follows the world, not the cube group.
+    this.topLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    this.topLight.position.set(0, 10, 0); // high overhead → rays point -Y (down)
+    this.topLight.target.position.set(0, 0, 0);
+    this.scene.add(this.topLight);
+    this.scene.add(this.topLight.target);
   }
 
   setAmbientIntensity(v) {

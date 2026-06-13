@@ -113,10 +113,11 @@ for (let t = 0; t < Z_TRACKS.length; t++) {
   balls.push(b);
 }
 // Start with one group per axis; each band shows as many tracks as its axis is
-// divided (div.X tracks on X, etc.). Only head 0 runs at first.
+// divided (div.X tracks on X, etc.). Every head starts MUTED — a quiet cube,
+// ready to be woken track by track.
 for (const b of balls) {
   b.active = (b.track ?? 0) < divisions[b.kind];
-  b.muted = b.index !== 0;
+  b.muted = true;
 }
 
 const engine = new Engine(surface, balls, divisions);
@@ -196,6 +197,31 @@ function rotateBands() {
 }
 
 const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands });
+
+// Boot look & feel — the starting parameters (the "both" surface, a darker
+// acrylic, a brighter ambient, the firefly heads). Applied through the same
+// path as Load JSON so the panel and the scene agree from frame one.
+ui.applyParams({
+  transport: { bpm: 120, stepMode: true, railed: true, gravity: 0 },
+  view: {
+    surfaceStyle: 'both',
+    facetGap: 0.12,
+    popAmount: 0.6,
+    ambientIntensity: 5.15,
+    cubeOpacity: 1,
+    cubeColor: '#231f1f',
+    armedColor: '#c7c4c4',
+    gridColor: '#3a4f70',
+    flashMode: 'instrument',
+    headStyle: 'inner',
+    headDepth: -0.02,
+    headCoreSize: 0.3,
+    mirrorFirefly: false,
+    fireflyBright: 5.5,
+    fireflyDim: 3,
+    fireflyDesat: 0,
+  },
+});
 
 // Optional debug hook (only when ?debug is in the URL): exposes the live objects
 // on window for inspection/automated UI tests. Never active in normal use.
