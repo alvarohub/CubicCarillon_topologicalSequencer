@@ -9,7 +9,7 @@ import { MELODIC, DRUMS, COLLISION_SOUNDS } from './audio.js';
 import { SCALE_NAMES, NOTE_NAMES, SCALES } from '../core/scales.js';
 
 export class UIPanel {
-  constructor({ engine, view, audio, sequencer, midi, controls, flags, setDivisions }) {
+  constructor({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands }) {
     this.engine = engine;
     this.view = view;
     this.audio = audio;
@@ -18,6 +18,7 @@ export class UIPanel {
     this.controls = controls;
     this.flags = flags; // { noteSound, collisionSound } — read by main's router
     this.setDivisions = setDivisions || (() => {}); // main's grid-resolution rebuild
+    this.rotateBands = rotateBands || (() => this.engine.swapBands()); // main's band rotation
     this._build();
     this.refresh();
     // anything the pointer/keyboard changes elsewhere gets mirrored here
@@ -120,7 +121,7 @@ export class UIPanel {
 
     row.append(
       button('Rotate X→Y→Z', () => {
-        this.engine.swapBands();
+        this.rotateBands();
         this.refresh();
       }),
       button('Reset heads', () => {

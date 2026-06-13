@@ -265,6 +265,18 @@ export class Engine {
     for (const b of this.balls) this.resetHead(b);
   }
 
+  // Keep a SURVIVING head on the reshaped grid after a live division change:
+  // clamp it into its (possibly resized) face and snap to the nearest cell
+  // centre, preserving its face and travel direction. Lets existing heads stay
+  // put musically instead of jumping home when the box grows/shrinks.
+  regridHead(b) {
+    this._snapToCell(b);
+    b._stepAcc = 0;
+    b.cellFace = -1;
+    b.cellI = -1;
+    b.cellJ = -1;
+  }
+
   _snapToCell(b) {
     const face = this.surface.faceById(b.faceId);
     const cu = this._cellSizeU(face),

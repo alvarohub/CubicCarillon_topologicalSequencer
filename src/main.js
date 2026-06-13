@@ -140,26 +140,62 @@ const controls = new Controls({ engine, view, audio, sequencer, startButtonId: '
 // sound routing flags (toggled from the panel)
 const flags = { noteSound: true, collisionSound: true };
 
+// Drop only the armed/muted cells that fall OUTSIDE the reshaped grid, so a
+// division change conserves every note that still has a cell to live on (the
+// score survives growing AND shrinking the box where it can).
+function pruneNotesToGrid() {
+  const fits = (key) => {
+    const [f, i, j] = key.split(':').map(Number);
+    const face = surface.faceById(f);
+    return i < divisions[face.uAxis] && j < divisions[face.vAxis];
+  };
+  for (const k of [...sequencer.armed.keys()]) if (!fits(k)) sequencer.armed.delete(k);
+  for (const k of [...sequencer.mutedCells.keys()]) if (!fits(k)) sequencer.mutedCells.delete(k);
+}
+
 // Change ONE world axis' track count LIVE (the per-group "Tracks on" dial). The
 // cuboid is re-shaped (surface.setDims) so the box grows/shrinks along that axis
-// with the cells staying unit squares; the score is per-grid so it clears, and
-// every head is re-homed onto the new lattice.
+// with the cells staying unit squares. This is INCREMENTAL and non-destructive:
+//   • a track that APPEARS (count grew) spawns its head at home;
+//   • a track that DISAPPEARS (count shrank) just hides — its head is gone;
+//   • a SURVIVING head keeps its musical cell (re-fitted onto the reshaped
+//     face), so existing heads neither jump home nor pile up as "duplicates";
+//   • notes are conserved wherever a cell still exists.
 function setDivisions(axis, n) {
   engine.setDiv(axis, n); // mutates the shared `divisions` object
   surface.setDims(divisions); // re-shape the cuboid (unit cells, box resizes)
   engine.collisionRadius = surface.unit * 0.55;
   sequencer.cells = divisions.X;
-  sequencer.clear();
+  pruneNotesToGrid(); // keep the score where it still fits
   for (const b of balls) {
+    const wasActive = b.active !== false;
+    const nowActive = (b.track ?? 0) < divisions[b.kind];
+    b.active = nowActive;
+    if (!nowActive) continue; // removed track → its head simply disappears
     b.home = homeFor(b.kind, b.track ?? 0, surface, b.speed || 0.4);
-    b.active = (b.track ?? 0) < divisions[b.kind];
-    engine.resetHead(b);
+    if (wasActive)
+      engine.regridHead(b); // surviving head: keep its cell, re-fit to the new box
+    else engine.resetHead(b); // newly-created track: spawn its head at home
   }
   view.applyDivisions();
   view.refreshArmedCells(sequencer);
 }
 
-const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags, setDivisions });
+// Rotate every head through the axes (X→Y→Z→X) — the "Rotate" button. Each head
+// moves to the corresponding face of the next band and is re-homed there; the
+// notes stay on their cells (a cell simply gets read by a different band now).
+function rotateBands() {
+  const cycle = { X: 'Y', Y: 'Z', Z: 'X' };
+  for (const b of balls) b.kind = cycle[b.kind] || 'X';
+  for (const b of balls) {
+    b.active = (b.track ?? 0) < divisions[b.kind];
+    b.home = homeFor(b.kind, b.track ?? 0, surface, b.speed || 0.4);
+    engine.resetHead(b);
+  }
+  view.refreshArmedCells(sequencer);
+}
+
+const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands });
 
 // Optional debug hook (only when ?debug is in the URL): exposes the live objects
 // on window for inspection/automated UI tests. Never active in normal use.
