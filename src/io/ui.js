@@ -817,6 +817,10 @@ export class UIPanel {
     }
     this.engine.balls.forEach((ball, i) => {
       const r = this.trackRows[i];
+      // rows ALWAYS mirror the head's active flag — whatever changed it (the
+      // track-count dial, a loaded session, or a live re-slice): an inactive
+      // track has no head on stage, so its row hides too.
+      r.row.style.display = ball.active === false ? 'none' : '';
       r.sel.value = ball.instrument;
       r.durSel.value = String(ball.rate);
       r.mBtn.classList.toggle('on', !!ball.muted);
