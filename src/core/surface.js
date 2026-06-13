@@ -60,6 +60,21 @@ export class Surface {
     return this._byId.get(id);
   }
 
+  // Re-shape the cuboid LIVE: each world axis has a division count (div.X/Y/Z);
+  // every cell stays a UNIT SQUARE, so the box's extent along an axis grows with
+  // that axis' count. The whole thing is normalised so the LONGEST side spans
+  // `fit` (keeping it framed). Face objects are kept (so renderers' references
+  // stay valid); only their sizes/centres and the gluings are recomputed.
+  setDims(div = this.div, fit = this.fit ?? 2) {
+    this.div = div; // shared reference (engine + UI mutate this)
+    this.fit = fit;
+    const r = applyCuboidDims(this.faces, div, fit);
+    this.unit = r.unit; // physical size of one unit cell (square)
+    this.dims = r.L; // { X, Y, Z } physical extents of the cuboid
+    this._buildGluings();
+    return this;
+  }
+
   to3D(face, x, y) {
     return add3(add3(face.C, scl3(face.u, x)), scl3(face.v, y));
   }
@@ -68,26 +83,28 @@ export class Surface {
     return [dot3(d, face.u), dot3(d, face.v)];
   }
 
-  // Local 2D corner coordinates of edge `e` of a square face (CCW winding).
-  // Edge convention: 0=+x (right), 1=+y (top), 2=-x (left), 3=-y (bottom).
-  static edgeCornersLocal(half) {
+  // Local 2D corner coordinates of edge `e` of a RECTANGULAR face (CCW winding),
+  // given the face's half-extents along u (halfU) and v (halfV). Square faces are
+  // just the halfU === halfV case.
+  // Edge convention: 0=+u (right), 1=+v (top), 2=-u (left), 3=-v (bottom).
+  static edgeCornersLocal(halfU, halfV) {
     return [
       [
-        [half, -half],
-        [half, half],
-      ], // 0 +x
+        [halfU, -halfV],
+        [halfU, halfV],
+      ], // 0 +u
       [
-        [half, half],
-        [-half, half],
-      ], // 1 +y
+        [halfU, halfV],
+        [-halfU, halfV],
+      ], // 1 +v
       [
-        [-half, half],
-        [-half, -half],
-      ], // 2 -x
+        [-halfU, halfV],
+        [-halfU, -halfV],
+      ], // 2 -u
       [
-        [-half, -half],
-        [half, -half],
-      ], // 3 -y
+        [-halfU, -halfV],
+        [halfU, -halfV],
+      ], // 3 -v
     ];
   }
 
@@ -95,8 +112,7 @@ export class Surface {
     // Precompute, for every (face, edge), the two shared corners in 3D.
     const edge3D = []; // edge3D[faceIndex][edgeIndex] = [P0, P1]
     this.faces.forEach((f, fi) => {
-      const half = f.size / 2;
-      const cl = Surface.edgeCornersLocal(half);
+      const cl = Surface.edgeCornersLocal(f.su / 2, f.sv / 2);
       edge3D[fi] = cl.map(([a, b]) => [this.to3D(f, a[0], a[1]), this.to3D(f, b[0], b[1])]);
     });
 
@@ -105,7 +121,7 @@ export class Surface {
       (same(e1[0], e2[0]) && same(e1[1], e2[1])) || (same(e1[0], e2[1]) && same(e1[1], e2[0]));
 
     this.faces.forEach((A, ai) => {
-      const half = A.size / 2;
+      const half = Math.min(A.su, A.sv) / 2;
       for (let i = 0; i < 4; i++) {
         // find the adjacent face/edge sharing this 3D segment
         let B = null,
@@ -175,20 +191,73 @@ export class Surface {
 }
 
 // ---------------------------------------------------------------------------
-// Factory: the unit cube (side 2, faces at coordinate ±1). Frames are chosen
-// with consistent OUTWARD normals.
+// Factory: a CUBOID built from unit cubes. Each world axis X/Y/Z is divided
+// into div.X / div.Y / div.Z cells; every cell is a unit square, so the box is
+// a div.X × div.Y × div.Z stack of little cubes. A face spanned by two axes is
+// therefore a non-square RECTANGLE of square tiles:
+//   ±Z = NX×NY,  ±X = NY×NZ,  ±Y = NZ×NX.
+// Setting all three counts equal yields a plain cube. Frames keep consistent
+// OUTWARD normals (same orientation as the original unit cube).
 // ---------------------------------------------------------------------------
+const FACE_SPECS = [
+  { id: 0, name: '+X', dir: [1, 0, 0], u: [0, 1, 0], v: [0, 0, 1] },
+  { id: 1, name: '-X', dir: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
+  { id: 2, name: '+Y', dir: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0] },
+  { id: 3, name: '-Y', dir: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
+  { id: 4, name: '+Z', dir: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] },
+  { id: 5, name: '-Z', dir: [0, 0, -1], u: [0, 1, 0], v: [1, 0, 0] },
+];
+
+// which world axis ('X'|'Y'|'Z') a unit vector points along
+function axisOf(vec) {
+  const ax = Math.abs(vec[0]),
+    ay = Math.abs(vec[1]),
+    az = Math.abs(vec[2]);
+  if (ax >= ay && ax >= az) return 'X';
+  if (ay >= az) return 'Y';
+  return 'Z';
+}
+
+// (Re)compute each face's rectangular size (su along u, sv along v) and centre
+// from the per-axis division counts, normalising so the longest side spans
+// `fit`. Returns the clamped counts, the unit cell size, and the box extents.
+function applyCuboidDims(faces, div, fit) {
+  const N = {
+    X: Math.max(1, Math.min(16, Math.round(div.X))),
+    Y: Math.max(1, Math.min(16, Math.round(div.Y))),
+    Z: Math.max(1, Math.min(16, Math.round(div.Z))),
+  };
+  const maxN = Math.max(N.X, N.Y, N.Z);
+  const unit = fit / maxN; // square cell size, same on every face
+  const L = { X: N.X * unit, Y: N.Y * unit, Z: N.Z * unit };
+  for (const f of faces) {
+    f.su = L[f.uAxis];
+    f.sv = L[f.vAxis];
+    f.size = Math.max(f.su, f.sv); // legacy alias (prefer su/sv everywhere)
+    const hf = L[f.faceAxis] / 2;
+    f.C = [f.dir[0] * hf, f.dir[1] * hf, f.dir[2] * hf];
+  }
+  return { N, unit, L };
+}
+
+export function buildCuboid(div = { X: 4, Y: 4, Z: 4 }, fit = 2) {
+  const faces = FACE_SPECS.map((s) => {
+    const f = { id: s.id, name: s.name, dir: s.dir.slice(), u: s.u.slice(), v: s.v.slice() };
+    f.uAxis = axisOf(f.u);
+    f.vAxis = axisOf(f.v);
+    f.faceAxis = axisOf(f.dir);
+    return f;
+  });
+  applyCuboidDims(faces, div, fit);
+  const surf = new Surface(faces);
+  surf.div = div; // shared reference
+  surf.fit = fit;
+  surf.unit = fit / Math.max(div.X, div.Y, div.Z);
+  surf.dims = { X: div.X * surf.unit, Y: div.Y * surf.unit, Z: div.Z * surf.unit };
+  return surf;
+}
+
+// Back-compat: a plain cube of side `size` (all axes divided equally elsewhere).
 export function buildCube(size = 2) {
-  const faces = [
-    { id: 0, name: '+X', size, C: [1, 0, 0], u: [0, 1, 0], v: [0, 0, 1] },
-    { id: 1, name: '-X', size, C: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
-    { id: 2, name: '+Y', size, C: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0] },
-    { id: 3, name: '-Y', size, C: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
-    { id: 4, name: '+Z', size, C: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] },
-    { id: 5, name: '-Z', size, C: [0, 0, -1], u: [0, 1, 0], v: [1, 0, 0] },
-  ];
-  // scale centres to match `size` (centres sit at ±size/2 along their axis)
-  const h = size / 2;
-  for (const f of faces) f.C = f.C.map((c) => c * h);
-  return new Surface(faces);
+  return buildCuboid({ X: 1, Y: 1, Z: 1 }, size);
 }

@@ -83,34 +83,36 @@ export class Ball {
     let guard = 0;
     while (remaining > EPS && guard++ < 32) {
       const face = surface.faceById(this.faceId);
-      const half = face.size / 2;
+      // rectangular face: half-extent along u (x) and v (y) may differ
+      const halfU = face.su / 2;
+      const halfV = face.sv / 2;
 
       // earliest exit through one of the 4 edges
       let tHit = Infinity,
         hitEdge = -1;
       if (this.vx > EPS) {
-        const t = (half - this.x) / this.vx;
+        const t = (halfU - this.x) / this.vx;
         if (t >= 0 && t < tHit) {
           tHit = t;
           hitEdge = 0;
         }
       }
       if (this.vy > EPS) {
-        const t = (half - this.y) / this.vy;
+        const t = (halfV - this.y) / this.vy;
         if (t >= 0 && t < tHit) {
           tHit = t;
           hitEdge = 1;
         }
       }
       if (this.vx < -EPS) {
-        const t = (-half - this.x) / this.vx;
+        const t = (-halfU - this.x) / this.vx;
         if (t >= 0 && t < tHit) {
           tHit = t;
           hitEdge = 2;
         }
       }
       if (this.vy < -EPS) {
-        const t = (-half - this.y) / this.vy;
+        const t = (-halfV - this.y) / this.vy;
         if (t >= 0 && t < tHit) {
           tHit = t;
           hitEdge = 3;
@@ -140,13 +142,15 @@ export class Ball {
 
       events.push({ type: 'edge', faceFrom: face.id, edge: hitEdge, toFace: e.toFaceId, ball: this });
 
-      // apply transition isometry to position and velocity
+      // apply transition isometry to position and velocity, then clamp to the
+      // NEIGHBOUR face's own (possibly different) rectangular bounds
+      const dst = surface.faceById(e.toFaceId);
       const nx = e.M.a * this.x + e.M.b * this.y + e.t[0];
       const ny = e.M.c * this.x + e.M.d * this.y + e.t[1];
       const nvx = e.M.a * this.vx + e.M.b * this.vy;
       const nvy = e.M.c * this.vx + e.M.d * this.vy;
-      this.x = clamp(nx, -half, half);
-      this.y = clamp(ny, -half, half);
+      this.x = clamp(nx, -dst.su / 2, dst.su / 2);
+      this.y = clamp(ny, -dst.sv / 2, dst.sv / 2);
       this.vx = nvx;
       this.vy = nvy;
       this.faceId = e.toFaceId;

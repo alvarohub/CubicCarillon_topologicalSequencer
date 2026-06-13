@@ -23,10 +23,15 @@
 // Pure module: no rendering, no audio, no DOM.
 
 export class Engine {
-  constructor(surface, balls, cells = 8) {
+  constructor(surface, balls, div = 8) {
     this.surface = surface;
     this.balls = balls;
-    this.cells = cells; // grid resolution per face side (for cell indexing)
+    // PER-AXIS grid resolution: each WORLD axis is sliced independently, so a
+    // face's two local directions (u,v) take the division of the world axis they
+    // point along. Changing div.Z re-slices every face that has a Z extent (±X,
+    // ±Y) while leaving the ±Z faces untouched. Accepts a shared {X,Y,Z} object
+    // (kept in sync with the view) or a single number for a uniform cube.
+    this.div = typeof div === 'object' ? div : { X: div, Y: div, Z: div };
     this.paused = false;
 
     this.gravityStrength = 0; // 0 = constant-velocity geodesics
@@ -39,6 +44,7 @@ export class Engine {
     this.railed = true;
     this.stepMode = false;
     this.bpm = 120; // step-mode tempo: one cell per beat
+    this.groupBpm = { X: 120, Y: 120, Z: 120 }; // per-axis tempo multipliers
 
     // head-to-head collisions (the sequencer's intersection events)
     this.collisionRadius = 0.12;
@@ -57,14 +63,40 @@ export class Engine {
     return b.muted || (this.soloActive && !b.solo);
   }
 
-  // ---- grid helpers ----
-  _cellSize(face) {
-    return face.size / this.cells;
+  // ---- grid helpers (per-axis, per-direction) ----
+  // back-compat alias (some legacy callers still read engine.cells)
+  get cells() {
+    return this.div.X;
   }
-  _cellIndex(coord, face) {
-    const half = face.size / 2;
-    const i = Math.floor((coord + half) / this._cellSize(face));
-    return i < 0 ? 0 : i >= this.cells ? this.cells - 1 : i;
+  _divU(face) {
+    return this.div[face.uAxis] ?? 4;
+  }
+  _divV(face) {
+    return this.div[face.vAxis] ?? 4;
+  }
+  _cellSizeU(face) {
+    return face.su / this._divU(face);
+  }
+  _cellSizeV(face) {
+    return face.sv / this._divV(face);
+  }
+  // cell size along whichever direction the head is travelling
+  _cellSizeAlong(b, face) {
+    return b.movingAxis() === 'x' ? this._cellSizeU(face) : this._cellSizeV(face);
+  }
+  _indexU(x, face) {
+    const n = this._divU(face);
+    const i = Math.floor((x + face.su / 2) / (face.su / n));
+    return i < 0 ? 0 : i >= n ? n - 1 : i;
+  }
+  _indexV(y, face) {
+    const n = this._divV(face);
+    const j = Math.floor((y + face.sv / 2) / (face.sv / n));
+    return j < 0 ? 0 : j >= n ? n - 1 : j;
+  }
+  // set one axis' resolution live (X/Y/Z); the caller re-homes/re-draws
+  setDiv(axis, n) {
+    this.div[axis] = Math.max(1, Math.min(16, Math.round(n)));
   }
 
   // R: row-major 3x3 mapping face-local (cube) vectors to world space.
@@ -110,8 +142,8 @@ export class Engine {
   // when the (face,i,j) changes. The first observation just records the cell.
   _cellEvents(b, out) {
     const face = this.surface.faceById(b.faceId);
-    const i = this._cellIndex(b.x, face);
-    const j = this._cellIndex(b.y, face);
+    const i = this._indexU(b.x, face);
+    const j = this._indexV(b.y, face);
     if (b.faceId !== b.cellFace || i !== b.cellI || j !== b.cellJ) {
       const first = b.cellFace === -1;
       b.cellFace = b.faceId;
@@ -149,7 +181,9 @@ export class Engine {
     for (const b of this.balls) {
       if (b.active === false) continue; // track disabled (the track-count dial)
       if (this._silent(b)) continue; // paused, or soloed-out
-      b._stepAcc = (b._stepAcc || 0) + (b.rate || 1);
+      const gbpm = this.groupBpm[b.kind] ?? this.bpm;
+      const phaseRate = (gbpm / Math.max(1, this.bpm)) * (b.rate || 1);
+      b._stepAcc = (b._stepAcc || 0) + phaseRate;
       let guard = 0;
       while (b._stepAcc >= 1 - 1e-9 && guard++ < 16) {
         b._stepAcc -= 1;
@@ -164,19 +198,21 @@ export class Engine {
   // the polyrhythm); pass out=null for a silent editing hop (shift).
   _hopOneCell(b, out, dir = 1) {
     const face = this.surface.faceById(b.faceId);
-    const cell = this._cellSize(face);
 
     // direction only (normalize); remember speed to restore afterwards
     let sp = Math.hypot(b.vx, b.vy);
     if (sp < 1e-9) {
       // give a stalled head a default direction along its band
-      b.vx = b.kind === 'V' ? 0 : 1;
-      b.vy = b.kind === 'V' ? 1 : 0;
+      b.vx = 1;
+      b.vy = 0;
       sp = 1;
     }
     b.vx /= sp;
     b.vy /= sp;
     if (this.railed) this._railProject(b, null);
+    // one cell = the cell size along the head's CURRENT travel direction (the
+    // grid is non-square, so a hop along u and a hop along v differ in length)
+    const cell = this._cellSizeAlong(b, face);
     if (dir < 0) {
       b.vx = -b.vx;
       b.vy = -b.vy;
@@ -231,52 +267,42 @@ export class Engine {
 
   _snapToCell(b) {
     const face = this.surface.faceById(b.faceId);
-    const half = face.size / 2;
-    const cell = this._cellSize(face);
-    const center = (k) => -half + (k + 0.5) * cell;
-    b.x = center(this._cellIndex(b.x, face));
-    b.y = center(this._cellIndex(b.y, face));
+    const cu = this._cellSizeU(face),
+      cv = this._cellSizeV(face);
+    b.x = -face.su / 2 + (this._indexU(b.x, face) + 0.5) * cu;
+    b.y = -face.sv / 2 + (this._indexV(b.y, face) + 0.5) * cv;
   }
 
-  // Gather the heads into a "bar": bring every head onto one face and line the
-  // bands up so they sweep as solid bars (the H heads become a vertical bar that
-  // reads a whole column at once; the V heads a horizontal bar). Each head keeps
-  // its perpendicular level (its pitch row/column).
-  alignHeads(faceId = 4) {
-    const face = this.surface.faceById(faceId);
-    const half = face.size / 2;
-    const cell = this._cellSize(face);
-    const center = (k) => -half + (k + 0.5) * cell;
-    for (const b of this.balls) {
-      b.faceId = faceId;
-      const speed = Math.hypot(b.vx, b.vy) || 0.5;
-      if (b.kind === 'V') {
-        b.x = center(this._cellIndex(b.x, face)); // keep its column (pitch)
-        b.y = center(0); // line up at the start row
-        b.vx = 0;
-        b.vy = speed;
-      } else {
-        b.y = center(this._cellIndex(b.y, face)); // keep its row (pitch)
-        b.x = center(0); // line up at the start column
-        b.vx = speed;
-        b.vy = 0;
-      }
+  // Per-GROUP align (the bar button, done right): pull every active head of one
+  // axis back to a common phase — the position of the MOST-BEHIND head — and
+  // clear its step-phase accumulator. Each head keeps its own pitch row/column;
+  // only the sweep position is re-aligned, so the late tracks catch up to a bar.
+  alignGroup(kind) {
+    const heads = this.balls.filter((b) => b.kind === kind && b.active !== false);
+    if (!heads.length) return;
+    let minIdx = Infinity;
+    for (const b of heads) {
+      const face = this.surface.faceById(b.faceId);
+      const idx = b.movingAxis() === 'x' ? this._indexU(b.x, face) : this._indexV(b.y, face);
+      if (idx < minIdx) minIdx = idx;
+    }
+    for (const b of heads) {
+      const face = this.surface.faceById(b.faceId);
+      if (b.movingAxis() === 'x') b.x = -face.su / 2 + (minIdx + 0.5) * this._cellSizeU(face);
+      else b.y = -face.sv / 2 + (minIdx + 0.5) * this._cellSizeV(face);
+      b._stepAcc = 0;
       b.cellFace = -1; // re-arm cell tracking so the next entry fires cleanly
       b.cellI = -1;
       b.cellJ = -1;
     }
   }
 
-  // Swap EVERY head's band: horizontal ↔ transversal. Positions stay put but the
-  // velocity flips to the perpendicular axis, so the whole cube is suddenly read
-  // the other way — same score, rotated reading. (Pitch now comes from the other
-  // coordinate too, since pitch = the perpendicular level.)
+  // Rotate EVERY head's band: X -> Y -> Z -> X. Positions stay put; velocity is
+  // snapped to the axis of the new band while preserving speed magnitude.
   swapBands() {
+    const cycle = { X: 'Y', Y: 'Z', Z: 'X' };
     for (const b of this.balls) {
-      b.kind = b.kind === 'V' ? 'H' : 'V';
-      const t = b.vx;
-      b.vx = b.vy;
-      b.vy = t;
+      b.kind = cycle[b.kind] || 'X';
       b.cellFace = -1; // re-arm cell tracking
       b.cellI = -1;
       b.cellJ = -1;
@@ -299,26 +325,26 @@ export class Engine {
     // normalise direction; default along band if stalled
     let sp = Math.hypot(probe.vx, probe.vy);
     if (sp < 1e-9) {
-      probe.vx = probe.kind === 'V' ? 0 : 1;
-      probe.vy = probe.kind === 'V' ? 1 : 0;
+      probe.vx = 1;
+      probe.vy = 0;
       sp = 1;
     }
     const cells = [];
     const seen = new Set();
-    const maxSteps = 4 * this.cells + 2;
+    const maxSteps = 4 * Math.max(this.div.X, this.div.Y, this.div.Z) + 4;
     const b = Object.assign(Object.create(Object.getPrototypeOf(ball)), ball); // shallow Ball clone
     b.vx = probe.vx / sp;
     b.vy = probe.vy / sp;
     if (this.railed) this._railProject(b, null);
     for (let s = 0; s < maxSteps; s++) {
       const face = this.surface.faceById(b.faceId);
-      const i = this._cellIndex(b.x, face);
-      const j = this._cellIndex(b.y, face);
+      const i = this._indexU(b.x, face);
+      const j = this._indexV(b.y, face);
       const key = `${b.faceId}:${i}:${j}`;
       if (seen.has(key)) break; // looped — the ring is closed
       seen.add(key);
       cells.push({ faceId: b.faceId, i, j });
-      b.step(this.surface, this._cellSize(face), null, 0, Infinity);
+      b.step(this.surface, this._cellSizeAlong(b, face), null, 0, Infinity);
       this._snapToCell(b);
       const u = Math.hypot(b.vx, b.vy) || 1;
       b.vx /= u;

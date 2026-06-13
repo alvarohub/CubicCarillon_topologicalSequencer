@@ -6,7 +6,7 @@
 // audio/midi adapters, the core never sees it. Keyboard shortcuts keep working.
 
 import { MELODIC, DRUMS, COLLISION_SOUNDS } from './audio.js';
-import { SCALE_NAMES, NOTE_NAMES } from '../core/scales.js';
+import { SCALE_NAMES, NOTE_NAMES, SCALES } from '../core/scales.js';
 
 export class UIPanel {
   constructor({ engine, view, audio, sequencer, midi, controls, flags, setDivisions }) {
@@ -119,11 +119,7 @@ export class UIPanel {
     row.appendChild(this.bpmInput);
 
     row.append(
-      button('Align bar', () => {
-        this.engine.alignHeads();
-        this.refresh();
-      }),
-      button('Swap H↔V', () => {
+      button('Rotate X→Y→Z', () => {
         this.engine.swapBands();
         this.refresh();
       }),
@@ -241,6 +237,18 @@ export class UIPanel {
     this.opacityInput.addEventListener('input', () => this.view.setCubeOpacity(+this.opacityInput.value));
     rowO.appendChild(this.opacityInput);
     s.appendChild(rowO);
+
+    const rowAm = el('div', 'ui-row');
+    rowAm.appendChild(el('label', 'ui-label', 'Ambient'));
+    this.ambientInput = el('input', 'ui-range');
+    this.ambientInput.type = 'range';
+    this.ambientInput.min = 0;
+    this.ambientInput.max = 6;
+    this.ambientInput.step = 0.05;
+    this.ambientInput.title = 'global fill light intensity';
+    this.ambientInput.addEventListener('input', () => this.view.setAmbientIntensity(+this.ambientInput.value));
+    rowAm.appendChild(this.ambientInput);
+    s.appendChild(rowAm);
 
     const rowC = el('div', 'ui-row');
     rowC.appendChild(el('label', 'ui-label', 'Colour'));
@@ -372,37 +380,12 @@ export class UIPanel {
   }
 
   // ---- Tracks ---------------------------------------------------------------
-  // One full-width ROW per track, Logic step-sequencer style: identity (colour
-  // dot · band) · Mute / Solo · instrument · duration · key + octave · scale ·
-  // phase shift · reset.
+  // Three grouped sequencers (X, Y, Z): each has its own track count, BPM,
+  // start/stop, global shift, scale and key. Track rows stay inside the group.
   _buildTracks() {
     const s = this._section('Tracks');
 
-    // stage row: how many tracks per band + how fine the grid is
-    const rowN = el('div', 'ui-row');
-    rowN.appendChild(el('label', 'ui-label slim', 'Heads ×2'));
-    this.countSel = el('select', 'ui-select ui-chan');
-    for (let n = 1; n <= 8; n++) this.countSel.appendChild(option(String(n), n));
-    this.countSel.title = 'tracks per band (one H + one V each)';
-    this.countSel.addEventListener('change', () => {
-      this._applyTrackCount(+this.countSel.value);
-      this.refresh();
-    });
-    rowN.appendChild(this.countSel);
-
-    rowN.appendChild(el('label', 'ui-label slim', 'Grid'));
-    this.gridSel = el('select', 'ui-select ui-chan');
-    for (let n = 1; n <= 16; n++) this.gridSel.appendChild(option(String(n), n));
-    this.gridSel.title = 'divisions per face side (changing it clears the score)';
-    this.gridSel.addEventListener('change', () => {
-      this.setDivisions(+this.gridSel.value);
-      this.refresh();
-    });
-    rowN.appendChild(this.gridSel);
-    s.appendChild(rowN);
-
-    const list = el('div', 'ui-track-list');
-    s.appendChild(list);
+    this.groupUI = {};
     this.trackRows = [];
     // step DURATION, Logic-style: ×4 bars per step down to 1/64 steps
     // (value = cells per beat; '1/4' = one cell per beat, the old ×1)
@@ -417,23 +400,105 @@ export class UIPanel {
       ['1/32', '8'],
       ['1/64', '16'],
     ];
+    const makeGroup = (axis) => {
+      const wrap = el('div', 'ui-group');
+      wrap.appendChild(el('div', 'ui-sec-title', `${axis} group`));
+
+      const top = el('div', 'ui-row');
+      top.appendChild(el('label', 'ui-label slim', `Tracks on ${axis}`));
+      const countSel = el('select', 'ui-select ui-chan');
+      for (let n = 1; n <= 16; n++) countSel.appendChild(option(String(n), n));
+      countSel.addEventListener('change', () => {
+        const n = +countSel.value;
+        // A band's track count IS its world axis' division: re-shape the cuboid
+        // (more tracks on K -> the box grows along K), then sync the row list.
+        this.setDivisions(axis, n);
+        this._applyTrackCount(axis, n);
+        this.refresh();
+      });
+      top.appendChild(countSel);
+
+      top.appendChild(el('label', 'ui-label slim', 'BPM'));
+      const bpmInput = el('input', 'ui-num');
+      bpmInput.type = 'number';
+      bpmInput.min = 20;
+      bpmInput.max = 400;
+      bpmInput.step = 1;
+      bpmInput.addEventListener('change', () => {
+        this.engine.groupBpm[axis] = Math.max(20, Math.min(400, +bpmInput.value || 120));
+      });
+      top.appendChild(bpmInput);
+
+      const runBtn = el('button', 'ui-btn', 'Stop group');
+      runBtn.addEventListener('click', () => {
+        const rows = this.trackRows.filter((r) => r.axis === axis && r.ball.active !== false);
+        const running = rows.some((r) => !r.ball.muted);
+        rows.forEach((r) => (r.ball.muted = running));
+        this.engine.refreshSolo();
+        this.refresh();
+      });
+      top.appendChild(runBtn);
+
+      const shiftL = el('button', 'ui-btn ui-mini', '◀');
+      shiftL.title = `shift ${axis} group one cell back`;
+      shiftL.addEventListener('click', () => {
+        for (const r of this.trackRows)
+          if (r.axis === axis && r.ball.active !== false) this.engine.shiftHead(r.index, -1);
+      });
+      const shiftR = el('button', 'ui-btn ui-mini', '▶');
+      shiftR.title = `shift ${axis} group one cell forward`;
+      shiftR.addEventListener('click', () => {
+        for (const r of this.trackRows)
+          if (r.axis === axis && r.ball.active !== false) this.engine.shiftHead(r.index, +1);
+      });
+      const alignBtn = el('button', 'ui-btn ui-mini', '↧');
+      alignBtn.title = `align ${axis} group — pull every track back to the latest one`;
+      alignBtn.addEventListener('click', () => {
+        this.engine.alignGroup(axis);
+        this.refresh();
+      });
+      top.append(shiftL, shiftR, alignBtn);
+
+      top.appendChild(el('label', 'ui-label slim', 'Scale'));
+      const scaleSel = el('select', 'ui-select ui-scale');
+      SCALE_NAMES.forEach((n) => scaleSel.appendChild(option(n, n)));
+      scaleSel.addEventListener('change', () => {
+        this._applyGroupScale(axis, scaleSel.value);
+        this.refresh();
+      });
+      top.appendChild(scaleSel);
+
+      top.appendChild(el('label', 'ui-label slim', 'Key'));
+      const keySel = el('select', 'ui-select ui-rate');
+      NOTE_NAMES.forEach((n, k) => keySel.appendChild(option(n, k)));
+      keySel.addEventListener('change', () => {
+        this._applyGroupKey(axis, +keySel.value);
+        this.refresh();
+      });
+      top.appendChild(keySel);
+      wrap.appendChild(top);
+
+      const list = el('div', 'ui-track-list');
+      wrap.appendChild(list);
+      s.appendChild(wrap);
+      this.groupUI[axis] = { wrap, list, countSel, bpmInput, runBtn, scaleSel, keySel };
+    };
+
+    ['X', 'Y', 'Z'].forEach(makeGroup);
+
     this.engine.balls.forEach((ball, i) => {
       const row = el('div', 'ui-row ui-track');
-
       const dot = el('span', 'ui-dot');
       dot.style.background = ball.color;
       row.appendChild(dot);
-      const kindEl = el('span', 'ui-kind', ball.kind === 'V' ? 'V' : 'H');
-      row.appendChild(kindEl);
+      row.appendChild(el('span', 'ui-kind', `${ball.kind}${ball.track + 1}`));
 
       const mBtn = el('button', 'ui-btn ui-mini', 'M');
-      mBtn.title = 'mute (pause) this head — its notes stay live for the other band';
       mBtn.addEventListener('click', () => {
         this.controls.toggleHeadPause(i);
         this.refresh();
       });
       const sBtn = el('button', 'ui-btn ui-mini', 'S');
-      sBtn.title = 'solo — only soloed heads run';
       sBtn.addEventListener('click', () => {
         ball.solo = !ball.solo;
         this.engine.refreshSolo();
@@ -455,7 +520,6 @@ export class UIPanel {
       row.appendChild(el('span', 'ui-sub-label', 'dur'));
       const durSel = el('select', 'ui-select ui-rate');
       DURS.forEach(([l, v]) => durSel.appendChild(option(l, v)));
-      durSel.title = 'step duration (how fast this head walks the grid)';
       durSel.addEventListener('change', () => (ball.rate = +durSel.value));
       row.appendChild(durSel);
 
@@ -463,62 +527,91 @@ export class UIPanel {
       const keySel = el('select', 'ui-select ui-rate');
       NOTE_NAMES.forEach((n, k) => keySel.appendChild(option(n, k)));
       keySel.addEventListener('change', () => {
-        if (ball.band) ball.band.root = Math.floor(ball.band.root / 12) * 12 + +keySel.value;
+        if (ball.band) {
+          ball.band.root = Math.floor(ball.band.root / 12) * 12 + +keySel.value;
+          this._syncGroupKeyState(ball.kind);
+        }
       });
       row.appendChild(keySel);
-      const octDn = el('button', 'ui-btn ui-mini', '−');
-      octDn.title = 'octave down';
-      octDn.addEventListener('click', () => {
-        if (ball.band) ball.band.root = Math.max(12, ball.band.root - 12);
-      });
-      const octUp = el('button', 'ui-btn ui-mini', '+');
-      octUp.title = 'octave up';
-      octUp.addEventListener('click', () => {
-        if (ball.band) ball.band.root = Math.min(108, ball.band.root + 12);
-      });
-      row.append(octDn, octUp);
-
-      const scaleSel = el('select', 'ui-select ui-scale');
-      SCALE_NAMES.forEach((n) => scaleSel.appendChild(option(n, n)));
-      scaleSel.title = 'this track\u2019s scale (all modes)';
-      scaleSel.addEventListener('change', () => {
-        if (ball.band) ball.band.scale = scaleSel.value;
-      });
-      row.appendChild(scaleSel);
 
       const back = el('button', 'ui-btn ui-mini', '◀');
-      back.title = 'shift this head one cell back (phase)';
       back.addEventListener('click', () => this.engine.shiftHead(i, -1));
       const fwd = el('button', 'ui-btn ui-mini', '▶');
-      fwd.title = 'shift this head one cell forward (phase)';
       fwd.addEventListener('click', () => this.engine.shiftHead(i, +1));
       const rst = el('button', 'ui-btn ui-mini', '↺');
-      rst.title = 'reset this head to its spawn position';
       rst.addEventListener('click', () => {
         this.engine.resetHead(ball);
         this.refresh();
       });
       row.append(back, fwd, rst);
 
-      list.appendChild(row);
-      this.trackRows.push({ row, sel, durSel, keySel, scaleSel, mBtn, sBtn, kindEl });
+      this.groupUI[ball.kind].list.appendChild(row);
+      this.trackRows.push({ axis: ball.kind, index: i, ball, row, sel, durSel, keySel, mBtn, sBtn });
     });
 
-    // initial stage size = however many tracks main.js woke up
-    this.trackCount = Math.max(1, this.engine.balls.filter((b) => b.active !== false && b.kind === 'H').length);
-    this._applyTrackCount(this.trackCount);
+    ['X', 'Y', 'Z'].forEach((axis) => this._applyTrackCount(axis, this.engine.div[axis]));
   }
 
-  // Put N tracks per band on stage; the rest vanish (engine, view and list).
-  _applyTrackCount(n) {
-    this.trackCount = n;
-    this.engine.balls.forEach((ball, i) => {
-      const t = ball.track ?? i;
-      const on = t < n;
-      ball.active = on;
-      if (this.trackRows[i]) this.trackRows[i].row.style.display = on ? '' : 'none';
-    });
+  _applyTrackCount(axis, n) {
+    const N = Math.max(1, Math.min(16, n));
+    for (const r of this.trackRows) {
+      if (r.axis !== axis) continue;
+      const on = (r.ball.track ?? 0) < N;
+      r.ball.active = on;
+      r.row.style.display = on ? '' : 'none';
+    }
     this.engine.refreshSolo();
+  }
+
+  _groupRows(axis) {
+    return this.trackRows.filter((r) => r.axis === axis).sort((a, b) => (a.ball.track ?? 0) - (b.ball.track ?? 0));
+  }
+
+  _groupRootBall(axis) {
+    return this._groupRows(axis)[0]?.ball || null;
+  }
+
+  _applyGroupScale(axis, scaleName) {
+    const rows = this._groupRows(axis);
+    if (!rows.length) return;
+    const rootBall = rows[0].ball;
+    if (!rootBall.band) return;
+    rootBall.band.scale = scaleName;
+    const offs = SCALES[scaleName] || SCALES.pentatonic;
+    const base = rootBall.band.root;
+    for (let t = 0; t < rows.length; t++) {
+      const b = rows[t].ball;
+      if (!b.band) continue;
+      b.band.scale = scaleName;
+      const oct = Math.floor(t / offs.length);
+      b.band.root = base + 12 * oct + offs[t % offs.length];
+    }
+    this._syncGroupKeyState(axis);
+  }
+
+  _applyGroupKey(axis, keyClass) {
+    const rows = this._groupRows(axis);
+    if (!rows.length) return;
+    const rootBall = rows[0].ball;
+    if (!rootBall.band) return;
+    rootBall.band.root = Math.floor(rootBall.band.root / 12) * 12 + keyClass;
+    this._applyGroupScale(axis, rootBall.band.scale);
+  }
+
+  _syncGroupKeyState(axis) {
+    const rows = this._groupRows(axis);
+    if (!rows.length) return;
+    const rootBall = rows[0].ball;
+    if (!rootBall.band) return;
+    const offs = SCALES[rootBall.band.scale] || SCALES.pentatonic;
+    const expected = rows.map((_, t) => {
+      const oct = Math.floor(t / offs.length);
+      return (((rootBall.band.root + 12 * oct + offs[t % offs.length]) % 12) + 12) % 12;
+    });
+    rows.forEach((r, t) => {
+      const got = ((r.ball.band.root % 12) + 12) % 12;
+      r.keySel.classList.toggle('ui-note-offscale', got !== expected[t]);
+    });
   }
 
   // ---- session parameters: collect / apply / save / load / show -------------
@@ -529,8 +622,27 @@ export class UIPanel {
       e = this.engine;
     return {
       version: 1,
-      divisions: e.cells,
-      trackCount: this.trackCount,
+      divisions: { ...e.div },
+      groups: {
+        X: {
+          tracks: this._groupRows('X').filter((r) => r.ball.active !== false).length,
+          bpm: e.groupBpm.X ?? e.bpm,
+          scale: this._groupRootBall('X')?.band?.scale,
+          key: (((this._groupRootBall('X')?.band?.root ?? 60) % 12) + 12) % 12,
+        },
+        Y: {
+          tracks: this._groupRows('Y').filter((r) => r.ball.active !== false).length,
+          bpm: e.groupBpm.Y ?? e.bpm,
+          scale: this._groupRootBall('Y')?.band?.scale,
+          key: (((this._groupRootBall('Y')?.band?.root ?? 57) % 12) + 12) % 12,
+        },
+        Z: {
+          tracks: this._groupRows('Z').filter((r) => r.ball.active !== false).length,
+          bpm: e.groupBpm.Z ?? e.bpm,
+          scale: this._groupRootBall('Z')?.band?.scale,
+          key: (((this._groupRootBall('Z')?.band?.root ?? 64) % 12) + 12) % 12,
+        },
+      },
       transport: { bpm: e.bpm, stepMode: e.stepMode, railed: e.railed, gravity: e.gravityStrength },
       sound: {
         noteSound: this.flags.noteSound,
@@ -543,6 +655,7 @@ export class UIPanel {
         surfaceStyle: v.surfaceStyle,
         facetGap: v.facetGap,
         popAmount: v.popAmount,
+        ambientIntensity: v.ambientIntensity,
         cubeOpacity: v.cubeOpacity,
         cubeColor: v.cubeColor,
         armedColor: v.armedColor,
@@ -573,7 +686,12 @@ export class UIPanel {
 
   applyParams(p) {
     if (!p || typeof p !== 'object') return;
-    if (p.divisions && p.divisions !== this.engine.cells) this.setDivisions(p.divisions); // clears the score
+    // per-axis divisions (re-shapes the cuboid). Back-compat: a bare number sets
+    // all three axes equally.
+    if (p.divisions != null) {
+      const d = typeof p.divisions === 'object' ? p.divisions : { X: p.divisions, Y: p.divisions, Z: p.divisions };
+      for (const ax of ['X', 'Y', 'Z']) if (d[ax] != null) this.setDivisions(ax, d[ax]); // clears the score
+    }
     const t = p.transport || {};
     if (t.bpm != null) this.engine.bpm = t.bpm;
     if (t.stepMode != null) this.engine.stepMode = t.stepMode;
@@ -588,6 +706,7 @@ export class UIPanel {
     if (vw.surfaceStyle != null) this.view.setSurfaceStyle(vw.surfaceStyle);
     if (vw.facetGap != null) this.view.setFacetGap(vw.facetGap);
     if (vw.popAmount != null) this.view.setPopAmount(vw.popAmount);
+    if (vw.ambientIntensity != null) this.view.setAmbientIntensity(vw.ambientIntensity);
     if (vw.cubeOpacity != null) this.view.setCubeOpacity(vw.cubeOpacity);
     if (vw.cubeColor != null) this.view.setCubeColor(vw.cubeColor);
     if (vw.armedColor != null) this.view.setArmedColor(vw.armedColor);
@@ -603,6 +722,17 @@ export class UIPanel {
     if (vw.fireflyBright != null) this.view.setFireflyBright(vw.fireflyBright);
     if (vw.fireflyDim != null) this.view.setFireflyDim(vw.fireflyDim);
     if (vw.fireflyDesat != null) this.view.setFireflyDesat(vw.fireflyDesat);
+    const groups = p.groups || {};
+    for (const axis of ['X', 'Y', 'Z']) {
+      const g = groups[axis] || {};
+      if (g.bpm != null) this.engine.groupBpm[axis] = g.bpm;
+      if (g.tracks != null) {
+        this.setDivisions(axis, g.tracks); // a band's track count = its axis division
+        this._applyTrackCount(axis, g.tracks);
+      }
+      if (g.scale != null) this._applyGroupScale(axis, g.scale);
+      if (g.key != null) this._applyGroupKey(axis, g.key);
+    }
     (p.tracks || []).forEach((tp, i) => {
       const b = this.engine.balls[i];
       if (!b) return;
@@ -614,7 +744,6 @@ export class UIPanel {
       if (b.band && tp.root != null) b.band.root = tp.root;
     });
     this.engine.refreshSolo();
-    if (p.trackCount) this._applyTrackCount(p.trackCount);
     if (p.score) {
       this.sequencer.clear();
       for (const [k, vel] of Object.entries(p.score)) this.sequencer.armed.set(k, vel);
@@ -657,6 +786,7 @@ export class UIPanel {
     this.surfaceSel.value = this.view.surfaceStyle;
     this.gapInput.value = this.view.facetGap;
     this.popInput.value = this.view.popAmount;
+    this.ambientInput.value = this.view.ambientIntensity;
     this.opacityInput.value = this.view.cubeOpacity;
     this.colorInput.value = this.view.cubeColor;
     this.armedInput.value = this.view.armedColor;
@@ -668,20 +798,29 @@ export class UIPanel {
     this.brightInput.value = this.view.fireflyBright;
     this.dimInput.value = this.view.fireflyDim;
     this.desatInput.value = this.view.fireflyDesat;
-    this.countSel.value = this.trackCount;
-    this.gridSel.value = String(this.engine.cells);
     this.chanSel.value = this.midi.channel;
     this.midiSel.disabled = !this.midi.enabled;
     this.chanSel.disabled = !this.midi.enabled;
+    for (const axis of ['X', 'Y', 'Z']) {
+      const rows = this._groupRows(axis);
+      this.groupUI[axis].countSel.value = String(rows.filter((r) => r.ball.active !== false).length || 1);
+      this.groupUI[axis].bpmInput.value = String(this.engine.groupBpm[axis] ?? this.engine.bpm);
+      const rootBall = this._groupRootBall(axis);
+      if (rootBall?.band) {
+        this.groupUI[axis].scaleSel.value = rootBall.band.scale;
+        this.groupUI[axis].keySel.value = String(((rootBall.band.root % 12) + 12) % 12);
+      }
+      const running = rows.some((r) => r.ball.active !== false && !r.ball.muted);
+      this.groupUI[axis].runBtn.textContent = running ? 'Stop group' : 'Start group';
+      this._syncGroupKeyState(axis);
+    }
     this.engine.balls.forEach((ball, i) => {
       const r = this.trackRows[i];
       r.sel.value = ball.instrument;
-      r.kindEl.textContent = ball.kind === 'V' ? 'V' : 'H';
       r.durSel.value = String(ball.rate);
       r.mBtn.classList.toggle('on', !!ball.muted);
       r.sBtn.classList.toggle('on', !!ball.solo);
       if (ball.band) {
-        r.scaleSel.value = ball.band.scale;
         r.keySel.value = ((ball.band.root % 12) + 12) % 12;
       }
     });

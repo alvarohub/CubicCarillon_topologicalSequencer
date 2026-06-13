@@ -20,7 +20,10 @@ export class View3D {
   constructor(surface, balls, container, opts = {}) {
     this.surface = surface;
     this.balls = balls;
-    this.cells = opts.cells || 8; // grid resolution per face side
+    // PER-AXIS grid resolution (shared {X,Y,Z} object, kept in sync with the
+    // engine). A face's u/v directions take the division of the world axis they
+    // point along, so the six faces are non-square grids.
+    this.divisions = opts.divisions || { X: 8, Y: 8, Z: 8 };
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0c12);
@@ -79,17 +82,44 @@ export class View3D {
   // highlight slides across the acrylic as you rotate the cube — that motion is
   // what makes it read as a solid, glossy object rather than a flat panel.
   _buildLights() {
-    this.scene.add(new THREE.AmbientLight(0x7a8499, 2.4)); // generous fill — the whole scene reads
-    const key = new THREE.PointLight(0xffffff, 60, 0, 2); // "not so far" key light
-    key.position.set(3, 4, 5);
-    this.scene.add(key);
-    const rim = new THREE.PointLight(0x88aaff, 22, 0, 2); // cool rim for depth
-    rim.position.set(-4, -2, 3);
-    this.scene.add(rim);
+    // Ambient is now user-controlled from the UI.
+    this.ambientIntensity = 2.2;
+    this.ambientLight = new THREE.AmbientLight(0x7a8499, this.ambientIntensity);
+    this.scene.add(this.ambientLight);
+
+    // Multi-side key/fill/rim points so the cube reads clearly from any angle.
+    const lights = [
+      [0xffffff, 44, [3.5, 4.2, 5.0]],
+      [0xfff4d8, 32, [-4.0, 2.0, 4.2]],
+      [0xcfe0ff, 24, [4.2, -3.4, -2.6]],
+      [0xaac6ff, 20, [-3.8, -2.8, -4.4]],
+    ];
+    this.sideLights = lights.map(([col, intensity, pos]) => {
+      const L = new THREE.PointLight(col, intensity, 0, 2);
+      L.position.set(pos[0], pos[1], pos[2]);
+      this.scene.add(L);
+      return L;
+    });
+  }
+
+  setAmbientIntensity(v) {
+    this.ambientIntensity = Math.max(0, Math.min(6, v));
+    if (this.ambientLight) this.ambientLight.intensity = this.ambientIntensity;
+  }
+
+  // ---- per-axis grid helpers ----
+  // divisions along a face's u / v local direction (its two spanning world axes)
+  _nu(f) {
+    return this.divisions[f.uAxis] ?? 8;
+  }
+  _nv(f) {
+    return this.divisions[f.vAxis] ?? 8;
+  }
+  _maxDiv() {
+    return Math.max(this.divisions.X, this.divisions.Y, this.divisions.Z);
   }
 
   _buildCubeMesh() {
-    const s = this.surface.faces[0].size;
     // Acrylic-like faces: glossy clearcoat (the specular sheen the light glides
     // over) + adjustable translucency. Opacity is a live control (setCubeOpacity)
     // so the cube can range from clear acrylic to fully opaque. depthWrite stays
@@ -101,7 +131,7 @@ export class View3D {
     this.faceMats = [];
     this.faceMeshes = [];
     for (const f of this.surface.faces) {
-      const geo = new THREE.PlaneGeometry(s, s);
+      const geo = new THREE.PlaneGeometry(f.su, f.sv);
       const mat = new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(this.cubeColor),
         metalness: 0.0,
@@ -126,6 +156,24 @@ export class View3D {
       this.faceMeshes.push(mesh);
     }
     // (no wireframe edges: the cube outline is carried by the facet gaps)
+  }
+
+  // When the cuboid is re-shaped (per-axis track count changes), each rectangular
+  // face changes size (su × sv) and its centre C moves: regenerate the plane
+  // geometry and refresh the placement matrix, reusing the materials.
+  _resizeCubeMesh() {
+    for (let i = 0; i < this.surface.faces.length; i++) {
+      const f = this.surface.faces[i];
+      const mesh = this.faceMeshes[i];
+      if (!mesh) continue;
+      mesh.geometry.dispose();
+      mesh.geometry = new THREE.PlaneGeometry(f.su, f.sv);
+      const u = f.u,
+        v = f.v,
+        n = f.n,
+        C = f.C;
+      mesh.matrix.set(u[0], v[0], n[0], C[0], u[1], v[1], n[1], C[1], u[2], v[2], n[2], C[2], 0, 0, 0, 1);
+    }
   }
 
   // Live control: dial the cube from clear acrylic (0) to fully opaque (1).
@@ -169,12 +217,21 @@ export class View3D {
   _buildGrid() {
     const positions = [];
     for (const f of this.surface.faces) {
-      const half = f.size / 2;
-      const cell = f.size / this.cells;
-      for (let i = 0; i <= this.cells; i++) {
-        const t = -half + i * cell;
-        positions.push(...this.surface.to3D(f, t, -half), ...this.surface.to3D(f, t, half));
-        positions.push(...this.surface.to3D(f, -half, t), ...this.surface.to3D(f, half, t));
+      const halfU = f.su / 2,
+        halfV = f.sv / 2;
+      const nu = this._nu(f),
+        nv = this._nv(f);
+      const cu = f.su / nu,
+        cv = f.sv / nv;
+      // lines of constant u (the nu+1 dividers across the v span)
+      for (let i = 0; i <= nu; i++) {
+        const t = -halfU + i * cu;
+        positions.push(...this.surface.to3D(f, t, -halfV), ...this.surface.to3D(f, t, halfV));
+      }
+      // lines of constant v (the nv+1 dividers across the u span)
+      for (let j = 0; j <= nv; j++) {
+        const t = -halfV + j * cv;
+        positions.push(...this.surface.to3D(f, -halfU, t), ...this.surface.to3D(f, halfU, t));
       }
     }
     const geo = new THREE.BufferGeometry();
@@ -247,14 +304,16 @@ export class View3D {
       mesh.material.dispose();
     }
     this._mutedMeshes = [];
-    const cell = this.surface.faces[0].size / this.cells;
     for (const keyStr of mutedKeys) {
       const [fStr, iStr, jStr] = keyStr.split(':');
       const faceId = +fStr,
         i = +iStr,
         j = +jStr;
       const f = this.surface.faceById(faceId);
-      const half = f.size / 2;
+      const halfU = f.su / 2,
+        halfV = f.sv / 2;
+      const cu = f.su / this._nu(f),
+        cv = f.sv / this._nv(f);
       const mat = new THREE.MeshBasicMaterial({
         color: 0x000000,
         transparent: true,
@@ -264,9 +323,9 @@ export class View3D {
       });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
       mesh.matrixAutoUpdate = false;
-      const x0 = -half + i * cell,
-        y0 = -half + j * cell;
-      this._placeRect(mesh, { faceId, x0, x1: x0 + cell, y0, y1: y0 + cell }, this._MUTE_LIFT);
+      const x0 = -halfU + i * cu,
+        y0 = -halfV + j * cv;
+      this._placeRect(mesh, { faceId, x0, x1: x0 + cu, y0, y1: y0 + cv }, this._MUTE_LIFT);
       this.mutedGroup.add(mesh);
       this._mutedMeshes.push(mesh);
     }
@@ -287,17 +346,19 @@ export class View3D {
     }
     this._armedOutlines.clear();
 
-    const cell = this.surface.faces[0].size / this.cells;
-    const pad = cell * 0.78; // pad size (a little smaller than the cell)
     for (const keyStr of sequencer.armed.keys()) {
       const [fStr, iStr, jStr] = keyStr.split(':');
       const faceId = +fStr,
         i = +iStr,
         j = +jStr;
       const f = this.surface.faceById(faceId);
-      const half = f.size / 2;
-      const cx = -half + (i + 0.5) * cell;
-      const cy = -half + (j + 0.5) * cell;
+      const halfU = f.su / 2,
+        halfV = f.sv / 2;
+      const cu = f.su / this._nu(f),
+        cv = f.sv / this._nv(f);
+      const pad = Math.min(cu, cv) * 0.78; // pad size (a little smaller than the cell)
+      const cx = -halfU + (i + 0.5) * cu;
+      const cy = -halfV + (j + 0.5) * cv;
       const rect = { faceId, x0: cx - pad / 2, x1: cx + pad / 2, y0: cy - pad / 2, y1: cy + pad / 2 };
 
       if (sequencer.mutedCells && sequencer.mutedCells.has(keyStr)) {
@@ -390,16 +451,27 @@ export class View3D {
         m.dispose();
       }
     }
-    const n = this.cells;
+    // Each face has its OWN nu×nv (non-square) tile grid. A flat global tile id
+    // is offset[fi] + j*nu + i; offsets are prefix sums of the per-face counts.
     this._faceIndex = new Map(this.surface.faces.map((f, k) => [f.id, k]));
-    this._facetCount = this.surface.faces.length * n * n;
+    this._faceNu = [];
+    this._faceNv = [];
+    this._faceOffset = [];
+    let off = 0;
     this.facets = this.surface.faces.map((f, fi) => {
-      const m = new THREE.InstancedMesh(this._facetGeo, this.facetMat, n * n);
+      const nu = this._nu(f),
+        nv = this._nv(f);
+      this._faceNu[fi] = nu;
+      this._faceNv[fi] = nv;
+      this._faceOffset[fi] = off;
+      off += nu * nv;
+      const m = new THREE.InstancedMesh(this._facetGeo, this.facetMat, nu * nv);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.userData = { pick: 'facets', faceIdx: fi };
       this.shellGroup.add(m);
       return m;
     });
+    this._facetCount = off;
     this._facetBase = new Array(this._facetCount); // id -> { m, n: normal, P, key }
     this._struckIds.clear();
     this._rebuildFacetMatrices();
@@ -414,13 +486,16 @@ export class View3D {
     const [f, i, j] = keyStr.split(':').map(Number);
     const fi = this._faceIndex.get(f);
     if (fi == null) return null;
-    return fi * this.cells * this.cells + j * this.cells + i;
+    return this._faceOffset[fi] + j * this._faceNu[fi] + i;
   }
 
   // global tile id -> the per-face mesh + its local instance index
   _facetAt(id) {
-    const per = this.cells * this.cells;
-    return { mesh: this.facets[Math.floor(id / per)], local: id % per };
+    for (let fi = 0; fi < this.facets.length; fi++) {
+      const count = this._faceNu[fi] * this._faceNv[fi];
+      if (id < this._faceOffset[fi] + count) return { mesh: this.facets[fi], local: id - this._faceOffset[fi] };
+    }
+    return { mesh: this.facets[this.facets.length - 1], local: 0 };
   }
 
   _facetSetColor(id, col) {
@@ -436,7 +511,6 @@ export class View3D {
   }
 
   _rebuildFacetMatrices() {
-    const n = this.cells;
     // every tile is a thin box (thickness FACET_REST) whose BASE sits on the
     // surface — the slight resting protrusion. A strike re-scales the normal
     // column to extrude it into a prism (see sync()).
@@ -444,28 +518,33 @@ export class View3D {
     const L = dz / 2 + this._FACET_LIFT;
     for (let fi = 0; fi < this.surface.faces.length; fi++) {
       const f = this.surface.faces[fi];
-      const half = f.size / 2;
-      const cell = f.size / n;
-      const s = cell * (1 - this.facetGap);
-      for (let j = 0; j < n; j++) {
-        for (let i = 0; i < n; i++) {
-          const cx = -half + (i + 0.5) * cell;
-          const cy = -half + (j + 0.5) * cell;
+      const halfU = f.su / 2,
+        halfV = f.sv / 2;
+      const nu = this._faceNu[fi],
+        nv = this._faceNv[fi];
+      const cu = f.su / nu,
+        cv = f.sv / nv;
+      const su = cu * (1 - this.facetGap);
+      const sv = cv * (1 - this.facetGap);
+      for (let j = 0; j < nv; j++) {
+        for (let i = 0; i < nu; i++) {
+          const cx = -halfU + (i + 0.5) * cu;
+          const cy = -halfV + (j + 0.5) * cv;
           const P = this.surface.to3D(f, cx, cy);
           const u = f.u,
             v = f.v,
             nn = f.n;
           const m = new THREE.Matrix4().set(
-            u[0] * s,
-            v[0] * s,
+            u[0] * su,
+            v[0] * sv,
             nn[0] * dz,
             P[0] + nn[0] * L,
-            u[1] * s,
-            v[1] * s,
+            u[1] * su,
+            v[1] * sv,
             nn[1] * dz,
             P[1] + nn[1] * L,
-            u[2] * s,
-            v[2] * s,
+            u[2] * su,
+            v[2] * sv,
             nn[2] * dz,
             P[2] + nn[2] * L,
             0,
@@ -473,9 +552,9 @@ export class View3D {
             0,
             1,
           );
-          const id = fi * n * n + j * n + i;
+          const id = this._faceOffset[fi] + j * nu + i;
           this._facetBase[id] = { m, n: nn, P, key: `${f.id}:${i}:${j}` };
-          this.facets[fi].setMatrixAt(j * n + i, m);
+          this.facets[fi].setMatrixAt(j * nu + i, m);
         }
       }
     }
@@ -585,8 +664,8 @@ export class View3D {
         const hit = tHit[0];
         const fi = hit.object.userData.faceIdx;
         const local = hit.instanceId;
-        const n = this.cells;
-        return { type: 'cell', faceId: this.surface.faces[fi].id, i: local % n, j: Math.floor(local / n) };
+        const nu = this._faceNu[fi];
+        return { type: 'cell', faceId: this.surface.faces[fi].id, i: local % nu, j: Math.floor(local / nu) };
       }
     }
 
@@ -598,10 +677,15 @@ export class View3D {
         const faceId = hit.object.userData.faceId;
         const local = hit.object.worldToLocal(hit.point.clone()); // plane-local = (u,v)
         const f = this.surface.faceById(faceId);
-        const half = f.size / 2;
-        const cell = f.size / this.cells;
-        const clampIdx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cell)));
-        return { type: 'cell', faceId, i: clampIdx(local.x), j: clampIdx(local.y) };
+        const halfU = f.su / 2,
+          halfV = f.sv / 2;
+        const nu = this._nu(f),
+          nv = this._nv(f);
+        const cu = f.su / nu,
+          cv = f.sv / nv;
+        const idxU = (c) => Math.max(0, Math.min(nu - 1, Math.floor((c + halfU) / cu)));
+        const idxV = (c) => Math.max(0, Math.min(nv - 1, Math.floor((c + halfV) / cv)));
+        return { type: 'cell', faceId, i: idxU(local.x), j: idxV(local.y) };
       }
     }
     return null;
@@ -612,7 +696,9 @@ export class View3D {
   // of quad meshes (1 in-face + up to 2 folded overflow). Geometry is a UNIT
   // plane (1x1) so a piece can be scaled to any rectangle. No per-frame alloc.
   _buildHeadMeshes() {
-    const cell = this.surface.faces[0].size / this.cells;
+    // Shared head geometries are sized to one UNIT cell (every facet is a unit
+    // square on the cuboid), so a head exactly fills a cell on every face.
+    const cell = this.surface.unit;
     // Heads sit on the TRUE surface (lift 0); the body shell is shrunk instead.
     // This keeps folded edge-pieces meeting exactly on the shared edge.
     this._lift = 0;
@@ -801,10 +887,10 @@ export class View3D {
     for (const g of old) if (g) g.dispose();
   }
 
-  // Change the grid resolution live (the divisions dial): rebuild everything
-  // that depends on the cell size. The caller refreshes the armed cells.
-  setCells(n) {
-    this.cells = Math.max(1, Math.min(16, Math.round(n)));
+  // Re-slice live after the shared `divisions` object changes (the per-group
+  // "Tracks on" dial): rebuild everything that depends on the cell sizes. The
+  // caller refreshes the armed cells.
+  applyDivisions() {
     // grid lines
     this.shellGroup.remove(this.gridLines);
     this.gridLines.geometry.dispose();
@@ -814,8 +900,10 @@ export class View3D {
     this._createFacetMeshes();
     this._refreshFacetColors();
     this._applySurfaceStyle();
-    // head geometries
-    const cell = this.surface.faces[0].size / this.cells;
+    // the cuboid itself re-shapes (faces resize / recenter)
+    this._resizeCubeMesh();
+    // head geometries (sized to one unit cell — every facet is a unit square)
+    const cell = this.surface.unit;
     this._headGeos(cell);
     for (const arr of this.headLeds) for (const m of arr) m.geometry = this._ledGeo;
     for (const m of this.headRings) m.geometry = this._ringGeo;
@@ -941,18 +1029,25 @@ export class View3D {
   // that split into a visible feature is reserved for a future project.
   _headPieces(faceId, cx, cy, s) {
     const f = this.surface.faceById(faceId);
-    const H = f.size / 2;
+    const HU = f.su / 2, // face half-extent along u (x)
+      HV = f.sv / 2; // and along v (y)
     const pieces = [
-      { faceId, x0: Math.max(cx - s, -H), x1: Math.min(cx + s, H), y0: Math.max(cy - s, -H), y1: Math.min(cy + s, H) },
+      {
+        faceId,
+        x0: Math.max(cx - s, -HU),
+        x1: Math.min(cx + s, HU),
+        y0: Math.max(cy - s, -HV),
+        y1: Math.min(cy + s, HV),
+      },
     ];
-    const yLo = Math.max(cy - s, -H),
-      yHi = Math.min(cy + s, H);
-    const xLo = Math.max(cx - s, -H),
-      xHi = Math.min(cx + s, H);
-    if (cx + s > H && f.edges[0]) pieces.push(this._foldRect(f.edges[0], H, cx + s, yLo, yHi)); // +x
-    if (cy + s > H && f.edges[1]) pieces.push(this._foldRect(f.edges[1], xLo, xHi, H, cy + s)); // +y
-    if (cx - s < -H && f.edges[2]) pieces.push(this._foldRect(f.edges[2], cx - s, -H, yLo, yHi)); // -x
-    if (cy - s < -H && f.edges[3]) pieces.push(this._foldRect(f.edges[3], xLo, xHi, cy - s, -H)); // -y
+    const yLo = Math.max(cy - s, -HV),
+      yHi = Math.min(cy + s, HV);
+    const xLo = Math.max(cx - s, -HU),
+      xHi = Math.min(cx + s, HU);
+    if (cx + s > HU && f.edges[0]) pieces.push(this._foldRect(f.edges[0], HU, cx + s, yLo, yHi)); // +x
+    if (cy + s > HV && f.edges[1]) pieces.push(this._foldRect(f.edges[1], xLo, xHi, HV, cy + s)); // +y
+    if (cx - s < -HU && f.edges[2]) pieces.push(this._foldRect(f.edges[2], cx - s, -HU, yLo, yHi)); // -x
+    if (cy - s < -HV && f.edges[3]) pieces.push(this._foldRect(f.edges[3], xLo, xHi, cy - s, -HV)); // -y
     return pieces;
   }
 
@@ -1262,14 +1357,25 @@ export class View3D {
         this.headLightsMirror[i].visible = false;
         this.headFrames[i].visible = false;
         const f = this.surface.faceById(b.faceId);
-        const half = f.size / 2;
-        const cellSz = f.size / this.cells;
-        const idx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cellSz)));
-        const centre = (kk) => -half + (kk + 0.5) * cellSz;
+        const halfU = f.su / 2,
+          halfV = f.sv / 2;
+        const nu = this._nu(f),
+          nv = this._nv(f);
+        const cu = f.su / nu,
+          cv = f.sv / nv;
         const alongX = Math.abs(b.vx) >= Math.abs(b.vy);
+        const nMot = alongX ? nu : nv; // cells along the motion axis
+        const cMot = alongX ? cu : cv; // cell size along the motion axis
+        const nRail = alongX ? nv : nu; // cells on the rail (perpendicular) axis
+        const cRail = alongX ? cv : cu; // cell size on the rail axis
+        const halfMot = alongX ? halfU : halfV;
+        const halfRail = alongX ? halfV : halfU;
+        const idxRail = (c) => Math.max(0, Math.min(nRail - 1, Math.floor((c + halfRail) / cRail)));
+        const centreMot = (kk) => -halfMot + (kk + 0.5) * cMot;
+        const centreRail = (kk) => -halfRail + (kk + 0.5) * cRail;
         const p = alongX ? b.x : b.y; // continuous coordinate along the motion
-        const qc = centre(idx(alongX ? b.y : b.x)); // rail coordinate, snapped
-        const s = (p + half) / cellSz - 0.5; // position in "LED units"
+        const qc = centreRail(idxRail(alongX ? b.y : b.x)); // rail coordinate, snapped
+        const s = (p + halfMot) / cMot - 0.5; // position in "LED units"
         const k0 = Math.floor(s);
         const frac = s - k0;
         const leds = this.headLeds[i];
@@ -1277,19 +1383,19 @@ export class View3D {
           const led = leds[m2];
           const kk = k0 + m2;
           const w = m2 === 0 ? 1 - frac : frac; // linear proximity weight
-          if (kk < 0 || kk >= this.cells || w < 0.02) {
+          if (kk < 0 || kk >= nMot || w < 0.02) {
             led.visible = false;
             continue;
           }
-          const cx = alongX ? centre(kk) : qc;
-          const cy = alongX ? qc : centre(kk);
+          const cx = alongX ? centreMot(kk) : qc;
+          const cy = alongX ? qc : centreMot(kk);
           this._placeOnFace(led, b.faceId, cx, cy, 0.009);
           led.material.emissiveIntensity = glow * (Math.log1p(9 * w) / Math.log1p(9));
           led.material.opacity = b.muted ? 0.15 : 0.95;
         }
         if (b.muted) {
-          const kk = Math.max(0, Math.min(this.cells - 1, Math.round(s)));
-          this._placeOnFace(ring, b.faceId, alongX ? centre(kk) : qc, alongX ? qc : centre(kk), 0.011);
+          const kk = Math.max(0, Math.min(nMot - 1, Math.round(s)));
+          this._placeOnFace(ring, b.faceId, alongX ? centreMot(kk) : qc, alongX ? qc : centreMot(kk), 0.011);
         } else ring.visible = false;
       } else if (this.headStyle === 'frame') {
         // Logic's playhead: a plain white non-filled square sitting on the
@@ -1301,12 +1407,18 @@ export class View3D {
         this.headLightsMirror[i].visible = false;
         ring.visible = false;
         const f = this.surface.faceById(b.faceId);
-        const half = f.size / 2;
-        const cellSz = f.size / this.cells;
-        const idx = (c) => Math.max(0, Math.min(this.cells - 1, Math.floor((c + half) / cellSz)));
-        const centre = (kk) => -half + (kk + 0.5) * cellSz;
+        const halfU = f.su / 2,
+          halfV = f.sv / 2;
+        const nu = this._nu(f),
+          nv = this._nv(f);
+        const cu = f.su / nu,
+          cv = f.sv / nv;
+        const idxU = (c) => Math.max(0, Math.min(nu - 1, Math.floor((c + halfU) / cu)));
+        const idxV = (c) => Math.max(0, Math.min(nv - 1, Math.floor((c + halfV) / cv)));
+        const centreU = (kk) => -halfU + (kk + 0.5) * cu;
+        const centreV = (kk) => -halfV + (kk + 0.5) * cv;
         const fr = this.headFrames[i];
-        this._placeOnFace(fr, b.faceId, centre(idx(b.x)), centre(idx(b.y)), 0.014);
+        this._placeOnFace(fr, b.faceId, centreU(idxU(b.x)), centreV(idxV(b.y)), 0.014);
         fr.material.opacity = b.muted ? 0.2 : 0.7 + k * 0.3;
       } else if (this.headStyle === 'inner') {
         // the firefly: a point light (+ optional tiny core) riding headDepth
@@ -1319,11 +1431,15 @@ export class View3D {
         const f = this.surface.faceById(b.faceId);
         const P = this.surface.to3D(f, b.x, b.y);
         const d = this.headDepth;
-        const lim = f.size / 2 - d; // a no-op when d <= 0 (riding outside)
-        const cl = (c) => Math.max(-lim, Math.min(lim, c));
-        const px = cl(P[0] - f.n[0] * d),
-          py = cl(P[1] - f.n[1] * d),
-          pz = cl(P[2] - f.n[2] * d);
+        // clamp per WORLD axis to the cuboid's (possibly unequal) half-extents,
+        // so the firefly can't poke out while folding around an edge
+        const dims = this.surface.dims;
+        const limX = dims.X / 2 - d,
+          limY = dims.Y / 2 - d,
+          limZ = dims.Z / 2 - d;
+        const px = Math.max(-limX, Math.min(limX, P[0] - f.n[0] * d)),
+          py = Math.max(-limY, Math.min(limY, P[1] - f.n[1] * d)),
+          pz = Math.max(-limZ, Math.min(limZ, P[2] - f.n[2] * d));
         const core = this.headInners[i];
         // the NOTE lights the firefly: idle = dim + desaturated; over an armed
         // cell = full instrument colour at fireflyBright, for the whole crossing

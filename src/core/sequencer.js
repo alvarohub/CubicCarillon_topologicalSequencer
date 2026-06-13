@@ -19,11 +19,12 @@
 import { Band } from './scales.js';
 
 export class Sequencer {
-  constructor({ cells = 8, bandH = null, bandV = null } = {}) {
+  constructor({ cells = 8, bandX = null, bandY = null, bandZ = null } = {}) {
     this.cells = cells;
     // two bands with independent scale + key
-    this.bandH = bandH || new Band({ name: 'horizontal', scale: 'pentatonic', root: 60 }); // C
-    this.bandV = bandV || new Band({ name: 'transversal', scale: 'pentatonic', root: 57 }); // A
+    this.bandX = bandX || new Band({ name: 'x-axis', scale: 'pentatonic', root: 60 }); // C
+    this.bandY = bandY || new Band({ name: 'y-axis', scale: 'pentatonic', root: 57 }); // A
+    this.bandZ = bandZ || new Band({ name: 'vertical-z', scale: 'pentatonic', root: 64 }); // E
     // armed cells: Map of "faceId:i:j" -> velocity (0..1, how hard the note is
     // struck). Arming defaults to a healthy mezzo-forte; the velocity is shaped
     // by the press-and-drag gesture (io/controls) and read by noteForEnter.
@@ -87,7 +88,9 @@ export class Sequencer {
   // one (full per-track control), otherwise the shared band of its group.
   bandFor(ball) {
     if (ball.band) return ball.band;
-    return ball.kind === 'V' ? this.bandV : this.bandH;
+    if (ball.kind === 'Y') return this.bandY;
+    if (ball.kind === 'Z') return this.bandZ;
+    return this.bandX;
   }
 
   // Note for a head ENTERING a cell, or null if the cell is not armed.

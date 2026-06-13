@@ -50,8 +50,8 @@ export class Controls {
         this.engine.railed = !this.engine.railed;
         this.statusFn(this.engine.railed ? 'railed (on tracks)' : 'derailed (free)');
       } else if (e.key === 'a' || e.key === 'A') {
-        this.engine.alignHeads();
-        this.statusFn('heads aligned into a bar');
+        for (const k of ['X', 'Y', 'Z']) this.engine.alignGroup(k);
+        this.statusFn('groups aligned to their latest tracks');
       } else if (e.key === '+' || e.key === '=') {
         this.engine.bpm = Math.min(400, this.engine.bpm + 5);
         this.statusFn(`${this.engine.bpm} BPM`);
@@ -132,7 +132,8 @@ export class Controls {
     menu.className = 'imenu';
     const title = document.createElement('div');
     title.className = 'imenu-title';
-    title.textContent = `head ${headIndex} (${ball.kind === 'V' ? 'transversal' : 'horizontal'})`;
+    const bandName = ball.kind === 'X' ? 'X band' : ball.kind === 'Y' ? 'Y band' : 'Z band';
+    title.textContent = `head ${headIndex} (${bandName})`;
     menu.appendChild(title);
     let lastType = null;
     INSTRUMENTS.forEach((ins, idx) => {
