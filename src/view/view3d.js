@@ -40,6 +40,11 @@ export class View3D {
     container.appendChild(this.renderer.domElement);
 
     this.cubeGroup = new THREE.Group();
+    // Start at a friendly 3/4 angle with the +X/+Z corner toward the viewer, so
+    // ALL THREE bands' starting edges of heads are visible at once: X on the top
+    // facet, Y down the front-left face, Z down the front-right face. Drag from
+    // here.
+    this.cubeGroup.rotation.set(0.62, -0.78, 0);
     this.scene.add(this.cubeGroup);
 
     // The cube BODY (faces + grid + wireframe) lives in a shell that is rendered
