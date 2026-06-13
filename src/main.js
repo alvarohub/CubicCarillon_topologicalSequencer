@@ -198,10 +198,14 @@ function rotateBands() {
 
 const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands });
 
-// Boot look & feel — the starting parameters (the "both" surface, a darker
-// acrylic, a brighter ambient, the firefly heads). Applied through the same
-// path as Load JSON so the panel and the scene agree from frame one.
-ui.applyParams({
+// Boot look & feel — load the starting parameters from presets/default.json
+// (the "both" surface, a darker acrylic, a brighter ambient, the firefly heads,
+// the 16+16+16 track stack). Loading a file means the defaults can be tweaked
+// without touching code: just edit presets/default.json (it has the exact same
+// shape that Save JSON writes / Load JSON reads). Applied through the same
+// applyParams path so the panel and the scene agree from frame one. Falls back
+// to a built-in preset if the file can't be fetched (e.g. opened via file://).
+const BOOT_FALLBACK = {
   transport: { bpm: 120, stepMode: true, railed: true, gravity: 0 },
   view: {
     surfaceStyle: 'both',
@@ -215,13 +219,21 @@ ui.applyParams({
     flashMode: 'instrument',
     headStyle: 'inner',
     headDepth: -0.02,
-    headCoreSize: 0.3,
-    mirrorFirefly: false,
-    fireflyBright: 5.5,
+    headCoreSize: 0.8,
+    mirrorFirefly: true,
+    fireflyBright: 4.8,
     fireflyDim: 3,
-    fireflyDesat: 0,
+    fireflyDesat: 0.3,
   },
-});
+};
+
+fetch(new URL('../presets/default.json', import.meta.url))
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+  .then((preset) => ui.applyParams(preset))
+  .catch((err) => {
+    console.warn('Could not load presets/default.json — using built-in defaults.', err);
+    ui.applyParams(BOOT_FALLBACK);
+  });
 
 // Optional debug hook (only when ?debug is in the URL): exposes the live objects
 // on window for inspection/automated UI tests. Never active in normal use.
