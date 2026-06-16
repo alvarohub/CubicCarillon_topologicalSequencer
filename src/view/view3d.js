@@ -26,7 +26,8 @@ export class View3D {
     this.divisions = opts.divisions || { X: 8, Y: 8, Z: 8 };
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0c12);
+    this.bgColor = '#0a0c12';
+    this.scene.background = new THREE.Color(this.bgColor);
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
     this.camera.position.set(0, 0, 6);
@@ -260,6 +261,13 @@ export class View3D {
   // comes from colour here — or from the facet body, where the gaps ARE the grid).
   setGridColor(hex) {
     this.gridMat.color.set(hex);
+  }
+
+  // Live control: the 3D scene background colour (behind the cube).
+  setBackgroundColor(hex) {
+    this.bgColor = hex;
+    if (this.scene.background) this.scene.background.set(hex);
+    else this.scene.background = new THREE.Color(hex);
   }
 
   // The SCORE: armed cells drawn as warm AMBER pads on the surface — their

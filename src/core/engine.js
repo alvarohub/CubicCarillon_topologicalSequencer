@@ -44,7 +44,9 @@ export class Engine {
     this.railed = true;
     this.stepMode = false;
     this.bpm = 120; // step-mode tempo: one cell per beat
-    this.groupBpm = { X: 120, Y: 120, Z: 120 }; // per-axis tempo multipliers
+    // Per-axis tempo OVERRIDE. Empty by default so every band follows the global
+    // `bpm` (the transport / +- keys); setting one pins that band to its own BPM.
+    this.groupBpm = {};
 
     // head-to-head collisions (the sequencer's intersection events)
     this.collisionRadius = 0.12;
@@ -153,40 +155,73 @@ export class Engine {
     }
   }
 
-  // Continuous-time advance. Each head experiences time scaled by its own
-  // `rate` (a musical multiplier of the global tempo: ×½, ×1, ×2, ×3 …).
+  // Effective tempo for a head: its band's own BPM if one was set, otherwise the
+  // global transport BPM. Both step and (clean) continuous motion derive their
+  // cell timing from this — `rate` then multiplies it like a per-track tempo.
+  _effBpm(b) {
+    const g = this.groupBpm[b.kind];
+    return g && g > 0 ? g : this.bpm;
+  }
+
+  // Continuous-time advance. In the CLEAN sequencer regime (gravity off + railed)
+  // every head is driven at EXACTLY `rate` cells per beat, so its speed is locked
+  // to the tempo: aligned heads stay together and a per-track `rate` is the only
+  // thing that makes them diverge (an honest, intentional polyrhythm). One cell =
+  // surface.unit, so cells/sec = rate · BPM/60 and the head crosses a cell in the
+  // same time a step-mode hop would take — continuous is just the smooth version.
+  // In the WILD regimes (gravity on, or derailed) the head runs free so gravity
+  // can actually speed it up / pull it off its rail.
   update(dt) {
     if (this.paused) return [];
-    if (this.stepMode) return []; // step mode advances via tick(), not here
+    if (this.stepMode) return []; // step mode advances via stepAdvance(), not here
     const all = [];
+    const clean = this.gravityStrength === 0 && this.railed;
     for (const b of this.balls) {
       if (b.active === false) continue; // track disabled (the track-count dial)
       if (this._silent(b)) continue; // paused, or soloed-out
       const face = this.surface.faceById(b.faceId);
-      let acc = this._accel(face);
-      if (this.railed) acc = this._railProject(b, acc);
-      b.step(this.surface, dt * (b.rate || 1), acc, this.damping, this.maxSpeed);
+      if (clean) {
+        // tempo-lock: keep the head's DIRECTION, set its SPEED from the tempo
+        const vmag = (this._effBpm(b) / 60) * this.surface.unit * (b.rate || 1);
+        let sp = Math.hypot(b.vx, b.vy);
+        if (sp < 1e-9) {
+          b.vx = 1;
+          b.vy = 0;
+          sp = 1;
+        }
+        b.vx = (b.vx / sp) * vmag;
+        b.vy = (b.vy / sp) * vmag;
+        this._railProject(b, null); // stay exactly on the rail
+        b.step(this.surface, dt, null, 0, this.maxSpeed);
+      } else {
+        let acc = this._accel(face);
+        if (this.railed) acc = this._railProject(b, acc);
+        b.step(this.surface, dt * (b.rate || 1), acc, this.damping, this.maxSpeed);
+      }
       this._cellEvents(b, all);
     }
     return all;
   }
 
-  // Discrete advance, called by the clock at `bpm`. Each head accumulates its
-  // own `rate` per beat and hops one cell per whole accumulated step — so a ×2
-  // track moves two cells per beat and a ×½ track every other beat, all locked
-  // to the same grid (the per-track polyrhythm, quantised).
-  tick() {
+  // Discrete advance, called every frame with the elapsed time. Each head keeps
+  // its OWN time accumulator and hops exactly ONE cell each time its step period
+  // elapses, so the motion is evenly spaced in TIME — no skipped cells and no
+  // "chord" from several hops landing in the same frame. With a 4/4 bar the head
+  // scans the whole loop in (60/BPM)·4 seconds at the natural resolution; `rate`
+  // (cells per beat) is the per-track tempo, so the per-cell period is simply
+  // 60 / (BPM · rate) seconds. A ×8 (1/32) track just steps eight times faster,
+  // one clean cell at a time, instead of jumping eight cells at once.
+  stepAdvance(dt) {
     if (this.paused) return [];
     const all = [];
     for (const b of this.balls) {
       if (b.active === false) continue; // track disabled (the track-count dial)
       if (this._silent(b)) continue; // paused, or soloed-out
-      const gbpm = this.groupBpm[b.kind] ?? this.bpm;
-      const phaseRate = (gbpm / Math.max(1, this.bpm)) * (b.rate || 1);
-      b._stepAcc = (b._stepAcc || 0) + phaseRate;
+      const period = 60 / (Math.max(1, this._effBpm(b)) * (b.rate || 1)); // seconds per cell
+      b._stepTime = (b._stepTime || 0) + dt;
       let guard = 0;
-      while (b._stepAcc >= 1 - 1e-9 && guard++ < 16) {
-        b._stepAcc -= 1;
+      while (b._stepTime >= period && guard++ < 8) {
+        b._stepTime -= period;
         this._hopOneCell(b, all);
       }
     }
@@ -255,6 +290,7 @@ export class Engine {
       b.kind = b.home.kind;
     }
     b._stepAcc = 0;
+    b._stepTime = 0;
     b.cellFace = -1;
     b.cellI = -1;
     b.cellJ = -1;
@@ -272,6 +308,7 @@ export class Engine {
   regridHead(b) {
     this._snapToCell(b);
     b._stepAcc = 0;
+    b._stepTime = 0;
     b.cellFace = -1;
     b.cellI = -1;
     b.cellJ = -1;
@@ -285,28 +322,17 @@ export class Engine {
     b.y = -face.sv / 2 + (this._indexV(b.y, face) + 0.5) * cv;
   }
 
-  // Per-GROUP align (the bar button, done right): pull every active head of one
-  // axis back to a common phase — the position of the MOST-BEHIND head — and
-  // clear its step-phase accumulator. Each head keeps its own pitch row/column;
-  // only the sweep position is re-aligned, so the late tracks catch up to a bar.
+  // Per-GROUP align (the bar button, done right): line every active head of one
+  // axis back up into a single bar. A band's heads loop around their world axis
+  // on DIFFERENT faces, so a per-face cell index is NOT a common phase — the old
+  // version only matched heads that happened to share a face, which is why a head
+  // that was "ahead" stayed ahead. Instead we send each head back to its spawn
+  // phase (home): the first cell along its travel axis, on its OWN row. Every
+  // head ends in the same column (step 0) of the bar, only their pitch rows
+  // differ — a clean, predictable alignment regardless of where they had drifted.
   alignGroup(kind) {
     const heads = this.balls.filter((b) => b.kind === kind && b.active !== false);
-    if (!heads.length) return;
-    let minIdx = Infinity;
-    for (const b of heads) {
-      const face = this.surface.faceById(b.faceId);
-      const idx = b.movingAxis() === 'x' ? this._indexU(b.x, face) : this._indexV(b.y, face);
-      if (idx < minIdx) minIdx = idx;
-    }
-    for (const b of heads) {
-      const face = this.surface.faceById(b.faceId);
-      if (b.movingAxis() === 'x') b.x = -face.su / 2 + (minIdx + 0.5) * this._cellSizeU(face);
-      else b.y = -face.sv / 2 + (minIdx + 0.5) * this._cellSizeV(face);
-      b._stepAcc = 0;
-      b.cellFace = -1; // re-arm cell tracking so the next entry fires cleanly
-      b.cellI = -1;
-      b.cellJ = -1;
-    }
+    for (const b of heads) this.resetHead(b);
   }
 
   // Rotate EVERY head's band: X -> Y -> Z -> X. Positions stay put; velocity is

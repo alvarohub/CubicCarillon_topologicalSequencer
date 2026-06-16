@@ -58,12 +58,16 @@ const H_COLORS = ['#ff5d5d', '#ff7a45', '#ff9b3d', '#ffb84d', '#ffd24d', '#ffe97
 const V_COLORS = ['#4dc8ff', '#5df0e0', '#5dff9b', '#9bff7a', '#6d8bff', '#8b6dff', '#b48bff', '#7adcff'];
 const Z_COLORS = ['#a16dff', '#bd7dff', '#d18cff', '#e29cff', '#8f89ff', '#76a8ff', '#86c7ff', '#9be5ff'];
 
-// One track per row (H) / column (V); each gets its own continuous-mode tempo
-// so derailing into continuous mode immediately makes polyrhythms.
+// One track per row (H) / column (V). Every track shares the SAME base speed so
+// that, once aligned, heads move together in continuous mode — divergence comes
+// ONLY from a deliberately different per-track `rate` (an honest polyrhythm),
+// never from a hidden speed spread. In the clean regime the engine re-derives
+// the actual speed from the tempo anyway; this just fixes the direction/sign.
+const BASE_SPEED = 0.5;
 const MAX_TRACKS_PER_SIDE = 16;
-const H_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: 0.4 + t * 0.035 }));
-const V_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: 0.45 + t * 0.035 }));
-const Z_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: 0.43 + t * 0.033 }));
+const H_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: BASE_SPEED }));
+const V_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: BASE_SPEED }));
+const Z_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: BASE_SPEED }));
 
 // First impression = a real little band: the whole H band plays the sampled
 // PIANO; the V band is the rhythm section (drums cycling). Only head 0 starts
@@ -246,7 +250,6 @@ if (location.search.includes('debug')) {
 // unifies continuous and step motion. In step mode a global clock ticks at BPM;
 // in continuous mode heads glide and cross cells at their own tempi (polyrhythm).
 let last = performance.now();
-let stepAcc = 0; // step-mode beat accumulator (seconds)
 
 function handleEnter(ev) {
   const note = sequencer.noteForEnter(ev);
@@ -263,17 +266,12 @@ function frame(now) {
 
   engine.setRotation(view.rotationArray());
 
+  // Both modes advance on real ELAPSED TIME: step mode hops cell-by-cell as each
+  // head's step period elapses (60 / (BPM·rate) s per cell), continuous glides.
+  // Neither skips cells nor fires several at once — the timing is purely time-based.
   if (engine.stepMode) {
-    // advance on the clock: one cell per beat
-    const interval = 60 / engine.bpm;
-    stepAcc += dt;
-    let guard = 0;
-    while (stepAcc >= interval && guard++ < 8) {
-      stepAcc -= interval;
-      for (const ev of engine.tick()) handleEnter(ev);
-    }
+    for (const ev of engine.stepAdvance(dt)) handleEnter(ev);
   } else {
-    stepAcc = 0;
     for (const ev of engine.update(dt)) handleEnter(ev);
   }
 

@@ -191,23 +191,11 @@ export class Controls {
   }
 
   async _requestOrientation() {
-    const DOE = window.DeviceOrientationEvent;
-    try {
-      if (DOE && typeof DOE.requestPermission === 'function') {
-        const res = await DOE.requestPermission(); // iOS 13+
-        if (res !== 'granted') return;
-      }
-    } catch {
-      /* not supported; ignore */
-    }
-
-    if (window.DeviceOrientationEvent) {
-      window.addEventListener('deviceorientation', (ev) => {
-        if (ev.alpha == null) return;
-        this.view.setDeviceOrientation(ev.alpha, ev.beta, ev.gamma);
-        this.engine.gravityStrength = 2.5; // tilting the phone rolls the balls
-        this.statusFn('tilt control active');
-      });
-    }
+    // The accelerometer / device-orientation drive of the cube is DISABLED for
+    // now: on a phone or iPad it made the cube spin uncontrollably and the app
+    // unusable. The sensor will come back later in a subtler role (e.g. nudging
+    // the tempo), so the start-button hook is kept but it no longer wires tilt
+    // to the cube's rotation or to gravity. Drag still rotates the cube.
+    return;
   }
 }

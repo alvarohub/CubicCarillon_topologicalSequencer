@@ -278,6 +278,16 @@ export class UIPanel {
     rowGC.appendChild(this.gridColorInput);
     s.appendChild(rowGC);
 
+    const rowBG = el('div', 'ui-row');
+    rowBG.appendChild(el('label', 'ui-label', 'Background'));
+    this.bgColorInput = el('input', 'ui-color');
+    this.bgColorInput.type = 'color';
+    this.bgColorInput.value = this.view.bgColor || '#0a0c12';
+    this.bgColorInput.title = 'scene background colour (behind the cube)';
+    this.bgColorInput.addEventListener('input', () => this.view.setBackgroundColor(this.bgColorInput.value));
+    rowBG.appendChild(this.bgColorInput);
+    s.appendChild(rowBG);
+
     const s2 = this._section('Notes & heads', this.panelR);
 
     // strike colour: saturated instrument colour, or pure white
@@ -452,8 +462,10 @@ export class UIPanel {
         for (const r of this.trackRows)
           if (r.axis === axis && r.ball.active !== false) this.engine.shiftHead(r.index, +1);
       });
-      const alignBtn = el('button', 'ui-btn ui-mini', '↧');
-      alignBtn.title = `align ${axis} group — pull every track back to the latest one`;
+      const alignBtn = el('button', 'ui-btn ui-mini', 'I');
+      alignBtn.style.fontFamily = 'Georgia, "Times New Roman", serif';
+      alignBtn.style.fontWeight = '700';
+      alignBtn.title = `align ${axis} group — line every track up into one bar (same starting column)`;
       alignBtn.addEventListener('click', () => {
         this.engine.alignGroup(axis);
         this.refresh();
@@ -661,6 +673,7 @@ export class UIPanel {
         cubeColor: v.cubeColor,
         armedColor: v.armedColor,
         gridColor: this.gridColorInput.value,
+        bgColor: v.bgColor,
         flashMode: v.flashMode,
         headStyle: v.headStyle,
         headDepth: v.headDepth,
@@ -714,6 +727,10 @@ export class UIPanel {
     if (vw.gridColor != null) {
       this.view.setGridColor(vw.gridColor);
       this.gridColorInput.value = vw.gridColor;
+    }
+    if (vw.bgColor != null) {
+      this.view.setBackgroundColor(vw.bgColor);
+      this.bgColorInput.value = vw.bgColor;
     }
     if (vw.flashMode != null) this.view.setFlashMode(vw.flashMode);
     if (vw.headStyle != null) this.view.setHeadStyle(vw.headStyle);
@@ -791,6 +808,7 @@ export class UIPanel {
     this.opacityInput.value = this.view.cubeOpacity;
     this.colorInput.value = this.view.cubeColor;
     this.armedInput.value = this.view.armedColor;
+    if (this.bgColorInput) this.bgColorInput.value = this.view.bgColor;
     this.flashSel.value = this.view.flashMode;
     this.headSel.value = this.view.headStyle;
     this.depthInput.value = this.view.headDepth;

@@ -47,6 +47,7 @@
     "cubeColor": "#231f1f",
     "armedColor": "#c7c4c4",
     "gridColor": "#3a4f70",
+    "bgColor": "#0a0c12",
     "flashMode": "instrument",
     "headStyle": "inner",
     "headDepth": -0.02,

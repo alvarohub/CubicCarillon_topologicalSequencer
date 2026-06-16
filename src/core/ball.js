@@ -34,6 +34,7 @@ export class Ball {
     this.solo = false; // when ANY head is soloed, only soloed heads run (Logic's S)
     this.rate = 1; // per-track speed as a multiple of the global tempo (×½, ×1, ×2 …)
     this._stepAcc = 0; // fractional-beat accumulator for step mode (rate ≠ 1)
+    this._stepTime = 0; // elapsed-time accumulator for step mode (seconds; one cell per period)
     // "home" = the spawn configuration, so a head can be reset after wandering
     // (derail, swap, shift …) without rebuilding the whole scene.
     this.home = { faceId, x, y, vx, vy, kind };
