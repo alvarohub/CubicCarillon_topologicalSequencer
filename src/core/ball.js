@@ -32,9 +32,13 @@ export class Ball {
     this.instrument = instrument; // index into the instrument list (the sound)
     this.muted = false; // a paused head freezes; its notes stay live for other heads
     this.solo = false; // when ANY head is soloed, only soloed heads run (Logic's S)
-    this.rate = 1; // per-track speed as a multiple of the global tempo (×½, ×1, ×2 …)
+    this.rate = 4; // per-track step size as cells-per-beat (4 = 1/16 default; ×½, ×1 …)
     this._stepAcc = 0; // fractional-beat accumulator for step mode (rate ≠ 1)
     this._stepTime = 0; // elapsed-time accumulator for step mode (seconds; one cell per period)
+    // net PHASE shift (the "delay"): how many cells this head has been nudged
+    // forward (+) or back (−) from its home phase via the ◀ ▶ buttons. Shown in
+    // the UI between the arrows; clicking it returns the head to zero delay.
+    this.shift = 0;
     // "home" = the spawn configuration, so a head can be reset after wandering
     // (derail, swap, shift …) without rebuilding the whole scene.
     this.home = { faceId, x, y, vx, vy, kind };

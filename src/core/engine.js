@@ -52,6 +52,14 @@ export class Engine {
     this.collisionRadius = 0.12;
     this._colliding = new Set(); // pair keys currently overlapping (debounce)
 
+    // Look-ahead used when placing note onsets on the AUDIO clock. A head's step
+    // boundary is detected a sub-frame LATE (after the accumulator crosses the
+    // period), so we reconstruct the true boundary time and push the note this
+    // far into the future, which (a) keeps it in the playable future and (b) makes
+    // co-incident heads land on the SAME instant instead of flamming. Larger than
+    // one animation frame so a stalled frame still schedules ahead, not in the past.
+    this.scheduleLatency = 0.05;
+
     // SOLO (Logic-style): when any active head is soloed, all the others freeze
     this.soloActive = false;
   }
@@ -142,7 +150,8 @@ export class Engine {
 
   // Detect a newly-entered grid cell for a single ball; push an 'enter' event
   // when the (face,i,j) changes. The first observation just records the cell.
-  _cellEvents(b, out) {
+  // `when` is the audio-clock time the entry should SOUND (from the scheduler).
+  _cellEvents(b, out, when) {
     const face = this.surface.faceById(b.faceId);
     const i = this._indexU(b.x, face);
     const j = this._indexV(b.y, face);
@@ -151,7 +160,7 @@ export class Engine {
       b.cellFace = b.faceId;
       b.cellI = i;
       b.cellJ = j;
-      if (!first) out.push({ type: 'enter', ball: b, faceId: b.faceId, i, j });
+      if (!first) out.push({ type: 'enter', ball: b, faceId: b.faceId, i, j, when });
     }
   }
 
@@ -171,17 +180,26 @@ export class Engine {
   // same time a step-mode hop would take — continuous is just the smooth version.
   // In the WILD regimes (gravity on, or derailed) the head runs free so gravity
   // can actually speed it up / pull it off its rail.
-  update(dt) {
+  update(dt, audioNow = 0) {
     if (this.paused) return [];
-    if (this.stepMode) return []; // step mode advances via stepAdvance(), not here
     const all = [];
-    const clean = this.gravityStrength === 0 && this.railed;
+    const when = audioNow + this.scheduleLatency;
+    // ONE dynamics for both "modes": step mode is purely a VIEW choice (snap the
+    // rendered head to cell centres). With gravity OFF the head GLIDES at a speed
+    // locked to the tempo — independent of whether it is railed. Rail only decides
+    // the HEADING: railed = snap the heading to the grid axis; derailed = keep the
+    // free (possibly rotated) heading. Either way the SPEED is identical, so
+    // toggling rail/derail no longer changes how fast the head moves. Gravity ON
+    // is the only "wild" regime: there the head runs free physics so gravity can
+    // actually accelerate it and (if derailed) curve it off the axis.
+    const gravityOn = this.gravityStrength !== 0;
     for (const b of this.balls) {
       if (b.active === false) continue; // track disabled (the track-count dial)
       if (this._silent(b)) continue; // paused, or soloed-out
       const face = this.surface.faceById(b.faceId);
-      if (clean) {
-        // tempo-lock: keep the head's DIRECTION, set its SPEED from the tempo
+      if (!gravityOn) {
+        // constant glide, tempo-locked: cells/sec = rate · BPM/60.
+        if (this.railed) this._railProject(b, null); // heading → grid axis
         const vmag = (this._effBpm(b) / 60) * this.surface.unit * (b.rate || 1);
         let sp = Math.hypot(b.vx, b.vy);
         if (sp < 1e-9) {
@@ -191,47 +209,25 @@ export class Engine {
         }
         b.vx = (b.vx / sp) * vmag;
         b.vy = (b.vy / sp) * vmag;
-        this._railProject(b, null); // stay exactly on the rail
-        b.step(this.surface, dt, null, 0, this.maxSpeed);
+        // No maxSpeed clamp: vmag IS the exact tempo-locked velocity, so the
+        // global BPM (and per-track rate) drive it freely.
+        b.step(this.surface, dt, null, 0, Infinity);
       } else {
         let acc = this._accel(face);
         if (this.railed) acc = this._railProject(b, acc);
         b.step(this.surface, dt * (b.rate || 1), acc, this.damping, this.maxSpeed);
       }
-      this._cellEvents(b, all);
-    }
-    return all;
-  }
-
-  // Discrete advance, called every frame with the elapsed time. Each head keeps
-  // its OWN time accumulator and hops exactly ONE cell each time its step period
-  // elapses, so the motion is evenly spaced in TIME — no skipped cells and no
-  // "chord" from several hops landing in the same frame. With a 4/4 bar the head
-  // scans the whole loop in (60/BPM)·4 seconds at the natural resolution; `rate`
-  // (cells per beat) is the per-track tempo, so the per-cell period is simply
-  // 60 / (BPM · rate) seconds. A ×8 (1/32) track just steps eight times faster,
-  // one clean cell at a time, instead of jumping eight cells at once.
-  stepAdvance(dt) {
-    if (this.paused) return [];
-    const all = [];
-    for (const b of this.balls) {
-      if (b.active === false) continue; // track disabled (the track-count dial)
-      if (this._silent(b)) continue; // paused, or soloed-out
-      const period = 60 / (Math.max(1, this._effBpm(b)) * (b.rate || 1)); // seconds per cell
-      b._stepTime = (b._stepTime || 0) + dt;
-      let guard = 0;
-      while (b._stepTime >= period && guard++ < 8) {
-        b._stepTime -= period;
-        this._hopOneCell(b, all);
-      }
+      b._lastHopWhen = when; // for aligning collisions with this head's note
+      this._cellEvents(b, all, when);
     }
     return all;
   }
 
   // Move ONE head exactly one cell along its rail (dir = +1 forward, -1 back).
   // Preserves the head's speed magnitude (so switching back to continuous keeps
-  // the polyrhythm); pass out=null for a silent editing hop (shift).
-  _hopOneCell(b, out, dir = 1) {
+  // the polyrhythm); pass out=null for a silent editing hop (shift). `when` tags
+  // the emitted enter event with its audio-clock onset time.
+  _hopOneCell(b, out, dir = 1, when) {
     const face = this.surface.faceById(b.faceId);
 
     // direction only (normalize); remember speed to restore afterwards
@@ -267,7 +263,7 @@ export class Engine {
     b.vx = (b.vx / u) * sp;
     b.vy = (b.vy / u) * sp;
 
-    if (out) this._cellEvents(b, out);
+    if (out) this._cellEvents(b, out, when);
   }
 
   // Nudge one head a cell forward (+1) or back (-1) along its rail — a silent
@@ -277,6 +273,29 @@ export class Engine {
     const b = this.balls[index];
     if (!b) return;
     this._hopOneCell(b, null, dir >= 0 ? 1 : -1);
+    b.shift = (b.shift || 0) + (dir >= 0 ? 1 : -1);
+  }
+
+  // Remove a head's accumulated PHASE shift ("delay") — hop it back to its home
+  // phase without disturbing anything else (band, face, derail …). One silent
+  // hop per shifted cell, opposite the net direction.
+  zeroShift(index) {
+    const b = this.balls[index];
+    if (!b) return;
+    const n = b.shift || 0;
+    const dir = n > 0 ? -1 : 1;
+    for (let k = 0; k < Math.abs(n); k++) this._hopOneCell(b, null, dir);
+    b.shift = 0;
+  }
+
+  // Flip a head's travel direction (it keeps scanning the same rail, the other
+  // way). A simple velocity negation — the rail projection keeps it on track, so
+  // the head just runs backward through its cells. Handy while editing/auditing.
+  reverseHead(index) {
+    const b = this.balls[index];
+    if (!b) return;
+    b.vx = -b.vx;
+    b.vy = -b.vy;
   }
 
   // Send one head back to its spawn configuration (face, cell, direction, band).
@@ -291,6 +310,7 @@ export class Engine {
     }
     b._stepAcc = 0;
     b._stepTime = 0;
+    b.shift = 0;
     b.cellFace = -1;
     b.cellI = -1;
     b.cellJ = -1;
@@ -307,6 +327,39 @@ export class Engine {
   // put musically instead of jumping home when the box grows/shrinks.
   regridHead(b) {
     this._snapToCell(b);
+    b._stepAcc = 0;
+    b._stepTime = 0;
+    b.cellFace = -1;
+    b.cellI = -1;
+    b.cellJ = -1;
+  }
+
+  // The head's CURRENT logical cell on its face — its (travel-phase i, row j).
+  // Read this BEFORE a reshape: the cell INDEX is the stable musical identity,
+  // whereas the absolute (x,y) is not (changing a division rescales `unit`, so
+  // the same coordinate would map to a different cell after the box resizes).
+  cellOf(b) {
+    const face = this.surface.faceById(b.faceId);
+    return { faceId: b.faceId, i: this._indexU(b.x, face), j: this._indexV(b.y, face) };
+  }
+
+  // Place a head at a given logical cell (clamped to the face's CURRENT grid),
+  // at the cell centre, keeping its face and travel direction. Pairs with
+  // cellOf() to re-fit a surviving head by INDEX across a reshape — so it keeps
+  // its row/phase instead of drifting, and any cells added/removed by the
+  // reshape land at the largest-coordinate END of the row/column.
+  placeAtCell(b, cell) {
+    if (!cell) return this.regridHead(b);
+    const face = this.surface.faceById(cell.faceId);
+    const nu = this._divU(face),
+      nv = this._divV(face);
+    const i = cell.i < 0 ? 0 : cell.i >= nu ? nu - 1 : cell.i;
+    const j = cell.j < 0 ? 0 : cell.j >= nv ? nv - 1 : cell.j;
+    const cu = this._cellSizeU(face),
+      cv = this._cellSizeV(face);
+    b.faceId = cell.faceId;
+    b.x = -face.su / 2 + (i + 0.5) * cu;
+    b.y = -face.sv / 2 + (j + 0.5) * cv;
     b._stepAcc = 0;
     b._stepTime = 0;
     b.cellFace = -1;
@@ -393,8 +446,10 @@ export class Engine {
 
   // Detect heads sharing a cell. Fires ONCE per encounter (when a pair first
   // overlaps), so a single crossing of two reading-heads is one musical event.
-  // Returns a list of { type:'collision', a, b } for newly-formed overlaps.
-  collisions() {
+  // Returns a list of { type:'collision', a, b, when } for newly-formed overlaps.
+  // `when` is aligned to whichever head hopped most recently, so the collision
+  // sounds together with the heads' own notes rather than a few ms off.
+  collisions(audioNow = 0) {
     const events = [];
     const r = this.collisionRadius;
     const active = new Set();
@@ -409,7 +464,11 @@ export class Engine {
         if (Math.abs(a.x - b.x) > r || Math.abs(a.y - b.y) > r) continue;
         const key = i * n + j;
         active.add(key);
-        if (!this._colliding.has(key)) events.push({ type: 'collision', a, b });
+        if (!this._colliding.has(key)) {
+          let when = Math.max(a._lastHopWhen ?? -Infinity, b._lastHopWhen ?? -Infinity);
+          if (!(when > 0)) when = audioNow + this.scheduleLatency;
+          events.push({ type: 'collision', a, b, when });
+        }
       }
     }
     this._colliding = active;

@@ -167,6 +167,14 @@ function pruneNotesToGrid() {
 //     face), so existing heads neither jump home nor pile up as "duplicates";
 //   • notes are conserved wherever a cell still exists.
 function setDivisions(axis, n) {
+  // Capture each surviving head's logical cell (face, travel-phase, row) BEFORE
+  // the box reshapes: the cell INDEX is the stable identity. The absolute (x,y)
+  // is not — changing a division rescales `unit`, so re-deriving the index from
+  // a preserved coordinate would land the head on a different cell (a head would
+  // appear to jump into the middle of the resized row).
+  const keep = new Map();
+  for (const b of balls) if (b.active !== false) keep.set(b, engine.cellOf(b));
+
   engine.setDiv(axis, n); // mutates the shared `divisions` object
   surface.setDims(divisions); // re-shape the cuboid (unit cells, box resizes)
   engine.collisionRadius = surface.unit * 0.55;
@@ -179,7 +187,7 @@ function setDivisions(axis, n) {
     if (!nowActive) continue; // removed track → its head simply disappears
     b.home = homeFor(b.kind, b.track ?? 0, surface, b.speed || 0.4);
     if (wasActive)
-      engine.regridHead(b); // surviving head: keep its cell, re-fit to the new box
+      engine.placeAtCell(b, keep.get(b)); // surviving head: keep its cell index
     else engine.resetHead(b); // newly-created track: spawn its head at home
   }
   view.applyDivisions();
@@ -254,7 +262,7 @@ let last = performance.now();
 function handleEnter(ev) {
   const note = sequencer.noteForEnter(ev);
   if (!note) return;
-  if (flags.noteSound) audio.play(note);
+  if (flags.noteSound) audio.play(note, ev.when); // scheduled on the audio clock
   if (midi.enabled) midi.note(note); // mirror to real synths
   view.flash(ev.ball); // the reading head pulses brighter (brightness only, not hue)
   view.strikeCell(ev.faceId, ev.i, ev.j, ev.ball.color); // flash the pad/facet (instrument colour)
@@ -266,23 +274,37 @@ function frame(now) {
 
   engine.setRotation(view.rotationArray());
 
-  // Both modes advance on real ELAPSED TIME: step mode hops cell-by-cell as each
-  // head's step period elapses (60 / (BPM·rate) s per cell), continuous glides.
-  // Neither skips cells nor fires several at once — the timing is purely time-based.
-  if (engine.stepMode) {
-    for (const ev of engine.stepAdvance(dt)) handleEnter(ev);
-  } else {
-    for (const ev of engine.update(dt)) handleEnter(ev);
-  }
+  // The audio clock drives all note ONSETS, so timing is sample-accurate and
+  // free of animation-frame jitter; the visuals still ride this rAF loop.
+  const audioNow = audio.now();
 
-  // head intersections -> a percussive hit (the non-Euclidean "collision" voice)
-  for (const ev of engine.collisions()) {
+  // ONE dynamics drives both "modes": every head GLIDES continuously (geodesic
+  // on the surface, so subtly-rotated trajectories keep reading the score). Step
+  // mode is purely a VIEW choice — the head is RENDERED snapped to cell centres
+  // ("don't show the ball between the cells"), but it advances and fires notes
+  // exactly like continuous. Each emitted event carries `when` — the exact
+  // audio-clock instant it sounds.
+  view.setSnap(engine.stepMode);
+  for (const ev of engine.update(dt, audioNow)) handleEnter(ev);
+
+  // Head intersections -> ONE event that draws on the two heads. The global
+  // collision SOURCE (sequencer.collisionSource) decides the sound: a fixed
+  // chosen voice, the armed note under the meeting, or both heads' instruments
+  // launched together (a dyad from the geometry). Scheduled on the audio clock,
+  // aligned to the heads' own notes so there is no flam.
+  for (const ev of engine.collisions(audioNow)) {
     view.flash(ev.a);
     view.flash(ev.b);
-    const note = sequencer.noteForCollision(ev);
-    if (note) {
-      if (flags.collisionSound) audio.playCollision(note);
-      if (midi.enabled) midi.collision(note);
+    if (!flags.collisionSound) continue;
+    const res = sequencer.voicesForCollision(ev);
+    if (res.fixed) {
+      audio.playCollision({}, ev.when);
+      if (midi.enabled) midi.collision({});
+    } else {
+      for (const voice of res.voices) {
+        audio.play(voice, ev.when);
+        if (midi.enabled) midi.note(voice);
+      }
     }
   }
 

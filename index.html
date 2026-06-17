@@ -302,7 +302,31 @@
         padding: 5px 0;
         font-size: 11px;
       }
+      .ui-delay {
+        flex: none;
+        min-width: 22px;
+        text-align: center;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        opacity: 0.45;
+        cursor: pointer;
+        user-select: none;
+      }
+      .ui-delay.nonzero {
+        opacity: 1;
+        font-weight: 700;
+        color: #ffd27b;
+      }
+      /* the scale-correct note inside a per-track key dropdown */
+      option.in-scale {
+        color: #57e07a;
+        font-weight: 700;
+      }
       .ui-rate {
+        flex: none;
+        width: 64px;
+      }
+      .ui-note {
         flex: none;
         width: 64px;
       }

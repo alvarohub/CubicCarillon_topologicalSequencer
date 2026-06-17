@@ -47,6 +47,9 @@ export class View3D {
     // here.
     this.cubeGroup.rotation.set(0.62, -0.78, 0);
     this.scene.add(this.cubeGroup);
+    this.autoRotate = false;
+    this._dragRotateScale = 0.007;
+    this._autoRotateSpeed = 0.11;
 
     // The cube BODY (faces + grid + wireframe) lives in a shell that is rendered
     // slightly SMALLER than the ideal surface the heads ride on. So the heads sit
@@ -64,6 +67,7 @@ export class View3D {
     this._buildArmedCells();
     this._buildMutedCells();
     this._buildFacets();
+    this._buildAxisLabels();
     this._buildHeadMeshes();
     this._buildGizmo();
     this._wireDrag();
@@ -293,6 +297,94 @@ export class View3D {
     this.flashMode = 'instrument'; // strike colour: 'instrument' (saturated) | 'white'
     this._PAD_LIFT = 0.006; // above the muted strips, above the face
     this._MUTE_LIFT = 0.003;
+  }
+
+  // ---- facet overlays ------------------------------------------------------
+  // Optional per-band text overlays that show the current note content for the
+  // group on top of the corresponding faces. They are deliberately separate
+  // from the grid/body so they can be toggled on for presentation.
+  _buildAxisLabels() {
+    this.axisLabelGroup = new THREE.Group();
+    this.shellGroup.add(this.axisLabelGroup);
+    this.axisLabelGroup.visible = false;
+    this.axisLabelVisible = { X: false, Y: false, Z: false };
+    this._axisFaces = {
+      X: [2, 3, 4, 5],
+      Y: [0, 1, 4, 5],
+      Z: [0, 1, 2, 3],
+    };
+    this._axisLabels = { X: [], Y: [], Z: [] };
+    for (const axis of ['X', 'Y', 'Z']) {
+      for (const faceId of this._axisFaces[axis]) {
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.95,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+        mesh.matrixAutoUpdate = false;
+        mesh.visible = false;
+        mesh.userData = { axis, faceId };
+        this.axisLabelGroup.add(mesh);
+        this._axisLabels[axis].push(mesh);
+      }
+    }
+  }
+
+  _setLabelText(mesh, text) {
+    const canvas = mesh.userData.canvas || (mesh.userData.canvas = document.createElement('canvas'));
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(9, 12, 18, 0.22)';
+    ctx.fillRect(16, 52, 224, 152);
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(16, 52, 224, 152);
+    const lines = String(text || '')
+      .split('\n')
+      .filter(Boolean);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ecf2ff';
+    ctx.font = '700 29px Georgia';
+    const startY = 128 - ((lines.length - 1) * 33) / 2;
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], 128, startY + i * 34);
+    mesh.material.map?.dispose?.();
+    mesh.material.map = new THREE.CanvasTexture(canvas);
+    mesh.material.map.colorSpace = THREE.SRGBColorSpace;
+    mesh.material.needsUpdate = true;
+    mesh.userData.canvas = canvas;
+  }
+
+  _placeLabel(mesh, faceId, lift = 0.044) {
+    const f = this.surface.faceById(faceId);
+    const u = f.u,
+      v = f.v,
+      n = f.n,
+      C = f.C;
+    mesh.matrix.set(
+      u[0] * f.su * 0.78,
+      v[0] * f.sv * 0.78,
+      n[0],
+      C[0] + n[0] * lift,
+      u[1] * f.su * 0.78,
+      v[1] * f.sv * 0.78,
+      n[1],
+      C[1] + n[1] * lift,
+      u[2] * f.su * 0.78,
+      v[2] * f.sv * 0.78,
+      n[2],
+      C[2] + n[2] * lift,
+      0,
+      0,
+      0,
+      1,
+    );
+    mesh.visible = true;
   }
 
   // Live control: the colour an armed (note-carrying) cell wears.
@@ -661,7 +753,10 @@ export class View3D {
 
   // Raycast pick at screen coords. Heads take priority over cells. Returns one of
   //   { type:'head', index }
-  //   { type:'cell', faceId, i, j }
+  //   { type:'cell', faceId, i, j, du, dv }   du,dv = cursor offset from the cell
+  //                                            centre in face-local (u,v) units —
+  //                                            lets the caller tell which crossing
+  //                                            head the click is aiming at.
   //   null
   pick(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -688,7 +783,11 @@ export class View3D {
         const fi = hit.object.userData.faceIdx;
         const local = hit.instanceId;
         const nu = this._faceNu[fi];
-        return { type: 'cell', faceId: this.surface.faces[fi].id, i: local % nu, j: Math.floor(local / nu) };
+        const f = this.surface.faces[fi];
+        const i = local % nu,
+          j = Math.floor(local / nu);
+        const off = this._cellOffset(hit.point, f, i, j);
+        return { type: 'cell', faceId: f.id, i, j, du: off.du, dv: off.dv };
       }
     }
 
@@ -708,10 +807,31 @@ export class View3D {
           cv = f.sv / nv;
         const idxU = (c) => Math.max(0, Math.min(nu - 1, Math.floor((c + halfU) / cu)));
         const idxV = (c) => Math.max(0, Math.min(nv - 1, Math.floor((c + halfV) / cv)));
-        return { type: 'cell', faceId, i: idxU(local.x), j: idxV(local.y) };
+        const i = idxU(local.x),
+          j = idxV(local.y);
+        const du = local.x - (-halfU + (i + 0.5) * cu);
+        const dv = local.y - (-halfV + (j + 0.5) * cv);
+        return { type: 'cell', faceId, i, j, du, dv };
       }
     }
     return null;
+  }
+
+  // Cursor offset from a cell's CENTRE, expressed in the face's in-plane (u,v)
+  // axes (model units). Works from any body mesh: bring the world hit point into
+  // shell-local space, take its components along the face's u and v, then subtract
+  // the cell-centre offset. |du| vs |dv| tells which of the two heads crossing
+  // this face the click is aiming at (the one whose travel crosses the nearer edge).
+  _cellOffset(worldPt, f, i, j) {
+    const p = this.shellGroup.worldToLocal(worldPt.clone());
+    const rx = p.x - f.C[0],
+      ry = p.y - f.C[1],
+      rz = p.z - f.C[2];
+    const du = rx * f.u[0] + ry * f.u[1] + rz * f.u[2];
+    const dv = rx * f.v[0] + ry * f.v[1] + rz * f.v[2];
+    const cu = f.su / this._nu(f),
+      cv = f.sv / this._nv(f);
+    return { du: du - (-f.su / 2 + (i + 0.5) * cu), dv: dv - (-f.sv / 2 + (j + 0.5) * cv) };
   }
 
   // One flat square per reading-head — but a head near an edge is split into
@@ -1228,13 +1348,13 @@ export class View3D {
         return;
       }
       if (downButton !== 0) return; // only the primary button rotates the cube
-      this.cubeGroup.rotation.y += dx * 0.01;
-      this.cubeGroup.rotation.x += dy * 0.01;
+      this.cubeGroup.rotation.y += dx * this._dragRotateScale;
+      this.cubeGroup.rotation.x += dy * this._dragRotateScale;
       // instantaneous angular velocity, lightly smoothed, for the release fling
       const dtm = Math.max(1, nowT - lastMove);
       lastMove = nowT;
-      this._spinY = 0.7 * this._spinY + 0.3 * ((dx * 0.01 * 1000) / dtm);
-      this._spinX = 0.7 * this._spinX + 0.3 * ((dy * 0.01 * 1000) / dtm);
+      this._spinY = 0.82 * this._spinY + 0.18 * ((dx * this._dragRotateScale * 1000) / dtm);
+      this._spinX = 0.82 * this._spinX + 0.18 * ((dy * this._dragRotateScale * 1000) / dtm);
     });
   }
 
@@ -1265,7 +1385,48 @@ export class View3D {
     ball.flash = performance.now();
   }
 
+  setAutoRotate(on) {
+    this.autoRotate = !!on;
+  }
+
   // read head state from the core and update the square meshes
+  // STEP MODE is purely a VIEW choice: the head keeps gliding (same dynamics),
+  // we just RENDER it snapped to the centre of the cell it currently occupies, so
+  // it is never shown "between" cells. Off = show the true continuous position.
+  setSnap(on) {
+    this.snapHeads = !!on;
+  }
+
+  setAxisLabelsVisible(axis, on) {
+    if (!this.axisLabelVisible) return;
+    this.axisLabelVisible[axis] = !!on;
+    if (this.axisLabelGroup) {
+      this.axisLabelGroup.visible = this.axisLabelVisible.X || this.axisLabelVisible.Y || this.axisLabelVisible.Z;
+    }
+    for (const mesh of this._axisLabels?.[axis] || []) mesh.visible = !!on;
+  }
+
+  setAxisLabels(axis, lines) {
+    const meshes = this._axisLabels?.[axis];
+    if (!meshes) return;
+    const texts = Array.isArray(lines) ? lines : [String(lines ?? '')];
+    for (let i = 0; i < meshes.length; i++) this._setLabelText(meshes[i], texts[i] ?? '');
+  }
+
+  // Display coordinate for a head: its true continuous (x,y), or — in step mode —
+  // the centre of the cell it sits in. Only moves the mesh; physics is untouched.
+  _dispCoord(b) {
+    if (!this.snapHeads) return { x: b.x, y: b.y };
+    const f = this.surface.faceById(b.faceId);
+    const nu = this._nu(f),
+      nv = this._nv(f);
+    const cu = f.su / nu,
+      cv = f.sv / nv;
+    const iu = Math.max(0, Math.min(nu - 1, Math.floor((b.x + f.su / 2) / cu)));
+    const iv = Math.max(0, Math.min(nv - 1, Math.floor((b.y + f.sv / 2) / cv)));
+    return { x: -f.su / 2 + (iu + 0.5) * cu, y: -f.sv / 2 + (iv + 0.5) * cv };
+  }
+
   sync(now) {
     // rotation inertia: keep spinning after a flick, damped exponentially
     if (this._lastSync == null) this._lastSync = now;
@@ -1278,9 +1439,13 @@ export class View3D {
     ) {
       this.cubeGroup.rotation.y += this._spinY * dts;
       this.cubeGroup.rotation.x += this._spinX * dts;
-      const damp = Math.exp(-1.8 * dts);
+      const damp = Math.exp(-2.45 * dts);
       this._spinX *= damp;
       this._spinY *= damp;
+    }
+
+    if (this.autoRotate && !this._dragging && !this._useDeviceOrientation) {
+      this.cubeGroup.rotation.y += this._autoRotateSpeed * dts;
     }
 
     // forget strikes once their flash has fully decayed
@@ -1361,6 +1526,8 @@ export class View3D {
       }
       const dt = now - b.flash;
       const k = dt < 220 ? 1 - dt / 220 : 0; // hit pulse 1 -> 0
+      // display coordinate: continuous, or snapped to the cell centre in step mode
+      const disp = this._dispCoord(b);
       // A hit pulses BRIGHTNESS only (the head flares like a struck LED); its
       // colour — the instrument identity — never changes. A PAUSED head goes
       // ghost-transparent with a thicker coloured contour: clearly asleep, still
@@ -1396,8 +1563,8 @@ export class View3D {
         const idxRail = (c) => Math.max(0, Math.min(nRail - 1, Math.floor((c + halfRail) / cRail)));
         const centreMot = (kk) => -halfMot + (kk + 0.5) * cMot;
         const centreRail = (kk) => -halfRail + (kk + 0.5) * cRail;
-        const p = alongX ? b.x : b.y; // continuous coordinate along the motion
-        const qc = centreRail(idxRail(alongX ? b.y : b.x)); // rail coordinate, snapped
+        const p = alongX ? disp.x : disp.y; // coordinate along the motion (snapped in step mode)
+        const qc = centreRail(idxRail(alongX ? disp.y : disp.x)); // rail coordinate, snapped
         const s = (p + halfMot) / cMot - 0.5; // position in "LED units"
         const k0 = Math.floor(s);
         const frac = s - k0;
@@ -1452,7 +1619,7 @@ export class View3D {
         ring.visible = false;
         this.headFrames[i].visible = false;
         const f = this.surface.faceById(b.faceId);
-        const P = this.surface.to3D(f, b.x, b.y);
+        const P = this.surface.to3D(f, disp.x, disp.y);
         const d = this.headDepth;
         // clamp per WORLD axis to the cuboid's (possibly unequal) half-extents,
         // so the firefly can't poke out while folding around an edge
@@ -1499,7 +1666,7 @@ export class View3D {
         this.headLightsMirror[i].visible = false;
         this.headFrames[i].visible = false;
         ring.visible = false;
-        const pieces = this._headPieces(b.faceId, b.x, b.y, this._headHalf);
+        const pieces = this._headPieces(b.faceId, disp.x, disp.y, this._headHalf);
         for (let k2 = 0; k2 < pool.length; k2++) {
           const mesh = pool[k2];
           if (k2 < pieces.length) {
@@ -1512,6 +1679,22 @@ export class View3D {
         }
       }
     }
+
+    // facet labels: each enabled axis shows the current note content on its four
+    // faces. The strings are set by the UI; here we just position the meshes.
+    for (const axis of ['X', 'Y', 'Z']) {
+      const meshes = this._axisLabels?.[axis] || [];
+      const visible = this.axisLabelVisible?.[axis];
+      const faces = this._axisFaces?.[axis] || [];
+      for (let i = 0; i < meshes.length; i++) {
+        const mesh = meshes[i];
+        if (!visible) {
+          mesh.visible = false;
+          continue;
+        }
+        this._placeLabel(mesh, faces[i]);
+      }
+    }
   }
 
   // A small "which way is the cube facing" gizmo: the cube's own axes + a faint
@@ -1521,7 +1704,19 @@ export class View3D {
     this._gizmoCam = new THREE.PerspectiveCamera(40, 1, 0.1, 10);
     this._gizmoCam.position.set(0, 0, 3.4);
     this._gizmoGroup = new THREE.Group();
-    this._gizmoGroup.add(new THREE.AxesHelper(1.0)); // x red, y green, z blue
+    // Explicit axis arrows + labels so orientation is readable at a glance.
+    this._gizmoGroup.add(
+      new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 1.0, 0xff5555, 0.22, 0.12),
+    );
+    this._gizmoGroup.add(
+      new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), 1.0, 0x66dd66, 0.22, 0.12),
+    );
+    this._gizmoGroup.add(
+      new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 1.0, 0x5d8cff, 0.22, 0.12),
+    );
+    this._gizmoGroup.add(this._gizmoLabel('X', 0xff9a9a, [1.22, 0, 0]));
+    this._gizmoGroup.add(this._gizmoLabel('Y', 0x9eff9e, [0, 1.22, 0]));
+    this._gizmoGroup.add(this._gizmoLabel('Z', 0x9ab7ff, [0, 0, 1.22]));
     const wire = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(1.1, 1.1, 1.1)),
       new THREE.LineBasicMaterial({ color: 0x3a4a60, transparent: true, opacity: 0.8 }),
@@ -1530,20 +1725,41 @@ export class View3D {
     this._gizmoScene.add(this._gizmoGroup);
   }
 
+  // Lightweight text sprite for gizmo axis labels (no external font dependency).
+  _gizmoLabel(text, color, pos) {
+    const cv = document.createElement('canvas');
+    cv.width = 96;
+    cv.height = 96;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.font = '700 56px Georgia';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+    ctx.fillText(text, cv.width / 2, cv.height / 2 + 2);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+    const sp = new THREE.Sprite(mat);
+    sp.position.set(pos[0], pos[1], pos[2]);
+    sp.scale.set(0.42, 0.42, 1);
+    return sp;
+  }
+
   render() {
     const r = this.renderer;
     r.setScissorTest(false);
     r.setViewport(0, 0, this._w, this._h);
     r.render(this.scene, this.camera);
 
-    // corner gizmo (bottom-right), drawn on top with its own depth
+    // corner gizmo (top-right), drawn on top with its own depth
     const s = 92,
       m = 10;
     this._gizmoGroup.quaternion.copy(this.cubeGroup.quaternion);
     r.clearDepth();
     r.setScissorTest(true);
-    r.setScissor(this._w - s - m, m, s, s);
-    r.setViewport(this._w - s - m, m, s, s);
+    r.setScissor(this._w - s - m, this._h - s - m, s, s);
+    r.setViewport(this._w - s - m, this._h - s - m, s, s);
     r.render(this._gizmoScene, this._gizmoCam);
     r.setScissorTest(false);
     r.setViewport(0, 0, this._w, this._h);

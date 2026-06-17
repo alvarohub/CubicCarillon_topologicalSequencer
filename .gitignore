@@ -12,3 +12,4 @@ npm-debug.log*
 
 # Processing build output
 **/applet/
+chat_*.json

@@ -377,3 +377,107 @@ its instrument** — a little drum, a bell, a stone — floating just above the
 surface, riding the rail. The square on the surface stays as the "read cursor"
 (translucent), the floating model is the identity. Pairs beautifully with the
 materials idea (§13) and the cast-shadow idea (§6a).
+
+---
+
+## 18. ⭐ The unifying architecture — one trigger pipeline, three sources (IMPLEMENTED, June 2026)
+
+**Status: implemented (iter 18).** The decision that turns "two separate modes"
+(sequencer notes vs. collisions) into one coherent instrument.
+
+**The spine: `trigger → resolve to a list of voices → play the list`.** Every
+musical instant is the same kind of thing; the only difference is _arity_ and
+_where the pitch comes from_:
+
+| Trigger                | Voices                                             | Pitch source                                          |
+| ---------------------- | -------------------------------------------------- | ----------------------------------------------------- |
+| head enters armed cell | 1 (head's instrument)                              | positional (perpendicular coordinate)                 |
+| **collision**          | the participating heads' voices, launched together | each head's own coordinate → a dyad from the geometry |
+
+So a collision is just a **2-voice trigger**. The dreaded N×M×O combinatorics
+(which percussion for X-head × Y-head × …) **never materialise** — you never
+enumerate pairs, you _launch each participant's voice_. This is also why it stays
+**hardware-honest**: an embedded controller computes "play both voices now" in a
+few instructions; it could never hold a pair-table.
+
+**Collision SOURCE — one global switch** (`sequencer.collisionSource`):
+
+- `fixed` — a chosen, independent collision sound (the old Thud/Wood/Metal/Clap).
+- `cell` — the armed note _under_ the meeting point (gated by the score).
+- `heads` (default) — each head **is** an instrument; both sound together.
+
+**Instrumentless head** (`ball.instrument < 0`, "— silent" in the menus) = a
+**silent carrier**: it makes no note of its own but still collides, so in `heads`
+mode only its partner sounds. One nullable field, big expressive payoff.
+
+**Head = instrument is already the track UI.** The track rows _are_ the per-head
+instrument + scale + key + rate. No "per-head instrument" panel was needed; it
+was done.
+
+**The reserved NOTE record (designed-for, dormant).** Today an armed cell stores
+only a velocity (a bare number) — a pure trigger ("a hole the head falls
+through"), inheriting instrument + pitch from the head. The non-breaking growth
+is to let the value become an object with **`null = inherit`** overrides:
+
+```
+cell = { velocity, gate:null, prob:null, pitch:null }
+```
+
+`velocity/gate/prob` shape the _trigger_ (they apply to whichever pitch sounds);
+`pitch` is the one orthogonal axis — `null` = **positional** (head) pitch, a
+number = an **engraved** absolute pitch. A global `pitchMode` then selects
+positional / engraved / **both** (a hole that triggers the head's voice _and_ its
+own). `sequencer.cellData()` already normalises number→object so the resolver is
+ready; storage stays a number for now (everything resolves to today's behaviour
+byte-for-byte). **Two pitches, but only ONE is stored** — the positional one is
+always derivable, so the device's soul (pitch = where you are on the body) is
+never duplicated, only optionally overridden.
+
+**Physical/visual mapping (the proof it's hardware-honest):** velocity → pad
+height + brightness; gate → dwell-glow length; prob → pad shimmer; engraved pitch
+→ a hue/marker vs. unmarked positional pitch. A few bytes per cell, no tables.
+
+**The one genuinely hard physical part — and the dodge:** per-button editing on
+the physical cube (selecting _this_ pad's velocity/gate/pitch with only the cube
+surface). Plan: **separate authoring from performance** — the screen/companion
+app is the _studio_ where you engrave per-pad values; the physical cube is the
+_performance instrument_ (play, wake heads, collide). The score is just data
+either side edits, so the device can ship without solving on-cube editing first.
+
+## 19. ⭐ Sample-accurate timing — two clocks (IMPLEMENTED, June 2026)
+
+**Status: implemented (iter 18).** The fix for the audible jitter + the "doubled"
+collision flam.
+
+The bug: notes played _immediately_ at whatever `ctx.currentTime` the animation
+frame happened to fire, so every onset inherited ~16 ms of rAF jitter; two heads
+meeting on a diagonal sounded a few ms apart (a flam), not together.
+
+The fix (Chris Wilson's "A Tale of Two Clocks", adapted): note ONSETS are placed
+on the **`AudioContext` sample clock**, not the frame clock. When a step boundary
+is detected (a sub-frame _late_, after the accumulator crosses the period), the
+engine reconstructs the **true** boundary time from the leftover accumulator and
+schedules the note at `boundary + scheduleLatency` (50 ms look-ahead, > one
+frame, so it's always in the playable future). Consequences:
+
+- consecutive onsets of a head are exactly `period` apart → **zero rhythmic
+  jitter** (verified: onset jitter 0.00000 s over a 2 s run);
+- two heads crossing on the **same** beat get the **same** scheduled instant →
+  the flam collapses into a clean dyad (no more "one head then the other");
+- the collision event is aligned to whichever head hopped most recently
+  (`b._lastHopWhen`), so the percussive hit sits _with_ the heads' notes.
+
+The visuals still ride rAF; only the **sound** rides the audio clock. The price
+is a constant ~50 ms audio-vs-visual offset (imperceptible, and adjustable via
+`engine.scheduleLatency`) in exchange for tight _relative_ timing — the right
+trade for a music device. Continuous (polyrhythm) mode schedules at
+`audioNow + latency` (no sub-frame correction; it's the "wild" mode where exact
+grid timing matters less). MIDI out stays immediate (the simple WebMIDI API can't
+schedule sample-accurately).
+
+**Note — collision does NOT "replace" the enter-notes.** A meeting can still
+produce the two heads' own enter-notes _plus_ the collision layer; the scheduler
+quantisation is what removes the doubling (co-beat enter-notes coincide as a
+chord instead of flamming). Collisions are an independent, toggleable layer
+(`flags.collisionSound`). If strict replace is ever wanted, it's a localised
+follow-up (tractable only in step mode, where both heads hop in the same frame).

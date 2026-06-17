@@ -147,7 +147,23 @@ export class UIPanel {
     this.noteChk = inlineCheck(row, 'Notes', true, (on) => (this.flags.noteSound = on));
     this.collChk = inlineCheck(row, 'Collisions', true, (on) => (this.flags.collisionSound = on));
 
-    row.appendChild(el('label', 'ui-label slim', 'Collision'));
+    // What a head-on-head meeting SOUNDS like (one global source):
+    //   Heads = both heads' instruments together · Cell = the armed note under
+    //   the meeting · Fixed = the chosen independent collision voice below.
+    row.appendChild(el('label', 'ui-label slim', 'On hit'));
+    this.collSrcSel = el('select', 'ui-select');
+    [
+      ['heads', 'Heads'],
+      ['cell', 'Cell note'],
+      ['fixed', 'Fixed'],
+    ].forEach(([v, l]) => this.collSrcSel.appendChild(option(l, v)));
+    this.collSrcSel.value = this.sequencer.collisionSource;
+    this.collSrcSel.addEventListener('change', () => {
+      this.sequencer.collisionSource = this.collSrcSel.value;
+    });
+    row.appendChild(this.collSrcSel);
+
+    row.appendChild(el('label', 'ui-label slim', 'Fixed'));
     this.collSel = el('select', 'ui-select');
     COLLISION_SOUNDS.forEach((name, i) => this.collSel.appendChild(option(name, i)));
     this.collSel.addEventListener('change', () => {
@@ -287,6 +303,18 @@ export class UIPanel {
     this.bgColorInput.addEventListener('input', () => this.view.setBackgroundColor(this.bgColorInput.value));
     rowBG.appendChild(this.bgColorInput);
     s.appendChild(rowBG);
+
+    const rowRot = el('div', 'ui-row');
+    this.spinChk = inlineCheck(rowRot, 'Spin', false, (on) => this.view.setAutoRotate(on));
+    rowRot.appendChild(el('span', 'ui-sub-label', 'Auto rotate'));
+    s.appendChild(rowRot);
+
+    const rowLab = el('div', 'ui-row');
+    rowLab.appendChild(el('label', 'ui-label', 'Labels'));
+    this.labelXChk = inlineCheck(rowLab, 'X', false, (on) => this.view.setAxisLabelsVisible('X', on));
+    this.labelYChk = inlineCheck(rowLab, 'Y', false, (on) => this.view.setAxisLabelsVisible('Y', on));
+    this.labelZChk = inlineCheck(rowLab, 'Z', false, (on) => this.view.setAxisLabelsVisible('Z', on));
+    s.appendChild(rowLab);
 
     const s2 = this._section('Notes & heads', this.panelR);
 
@@ -429,17 +457,6 @@ export class UIPanel {
       });
       top.appendChild(countSel);
 
-      top.appendChild(el('label', 'ui-label slim', 'BPM'));
-      const bpmInput = el('input', 'ui-num');
-      bpmInput.type = 'number';
-      bpmInput.min = 20;
-      bpmInput.max = 400;
-      bpmInput.step = 1;
-      bpmInput.addEventListener('change', () => {
-        this.engine.groupBpm[axis] = Math.max(20, Math.min(400, +bpmInput.value || 120));
-      });
-      top.appendChild(bpmInput);
-
       const runBtn = el('button', 'ui-btn', 'Stop group');
       runBtn.addEventListener('click', () => {
         const rows = this.trackRows.filter((r) => r.axis === axis && r.ball.active !== false);
@@ -494,7 +511,7 @@ export class UIPanel {
       const list = el('div', 'ui-track-list');
       wrap.appendChild(list);
       s.appendChild(wrap);
-      this.groupUI[axis] = { wrap, list, countSel, bpmInput, runBtn, scaleSel, keySel };
+      this.groupUI[axis] = { wrap, list, countSel, runBtn, scaleSel, keySel };
     };
 
     ['X', 'Y', 'Z'].forEach(makeGroup);
@@ -520,6 +537,9 @@ export class UIPanel {
       row.append(mBtn, sBtn);
 
       const sel = el('select', 'ui-select ui-track-ins');
+      // "(silent)" = an instrumentless carrier head: it makes no note of its own
+      // but still collides, so in 'Heads' collision mode only its partner sounds.
+      sel.appendChild(option('— silent', -1));
       const gm = el('optgroup');
       gm.label = 'Melodic';
       MELODIC.forEach((ins, k) => gm.appendChild(option(ins.name, k)));
@@ -530,36 +550,56 @@ export class UIPanel {
       sel.addEventListener('change', () => (ball.instrument = +sel.value));
       row.appendChild(sel);
 
-      row.appendChild(el('span', 'ui-sub-label', 'dur'));
+      row.appendChild(el('span', 'ui-sub-label', 'res'));
       const durSel = el('select', 'ui-select ui-rate');
       DURS.forEach(([l, v]) => durSel.appendChild(option(l, v)));
       durSel.addEventListener('change', () => (ball.rate = +durSel.value));
       row.appendChild(durSel);
 
-      row.appendChild(el('span', 'ui-sub-label', 'key'));
-      const keySel = el('select', 'ui-select ui-rate');
-      NOTE_NAMES.forEach((n, k) => keySel.appendChild(option(n, k)));
+      row.appendChild(el('span', 'ui-sub-label', 'Note'));
+      // The ACTUAL note this track plays (its row's scale degree), with octave —
+      // not the band tonic. Picking a note TRANSPOSES this one track so it sounds
+      // that pitch; the scale tones are highlighted green so the in-scale choices
+      // are obvious and a transposed track reads as a deliberate departure.
+      const keySel = el('select', 'ui-select ui-note');
+      for (let m = NOTE_MIN; m <= NOTE_MAX; m++) keySel.appendChild(option(noteName(m), m));
       keySel.addEventListener('change', () => {
         if (ball.band) {
-          ball.band.root = Math.floor(ball.band.root / 12) * 12 + +keySel.value;
+          const cur = this._trackNote(ball);
+          if (cur != null) ball.band.root += +keySel.value - cur; // transpose to the picked note
           this._syncGroupKeyState(ball.kind);
+          this.refresh();
         }
       });
       row.appendChild(keySel);
 
       const back = el('button', 'ui-btn ui-mini', '◀');
-      back.addEventListener('click', () => this.engine.shiftHead(i, -1));
-      const fwd = el('button', 'ui-btn ui-mini', '▶');
-      fwd.addEventListener('click', () => this.engine.shiftHead(i, +1));
-      const rst = el('button', 'ui-btn ui-mini', '↺');
-      rst.addEventListener('click', () => {
-        this.engine.resetHead(ball);
+      back.title = 'shift this head one cell back (delay −1)';
+      back.addEventListener('click', () => {
+        this.engine.shiftHead(i, -1);
         this.refresh();
       });
-      row.append(back, fwd, rst);
+      // the DELAY readout lives between the arrows: how many cells this head is
+      // phase-shifted from home (0 = in phase). Click it to zero the delay.
+      const delay = el('span', 'ui-delay', '0');
+      delay.title = 'phase delay (cells from home) — click to zero';
+      delay.addEventListener('click', () => {
+        this.engine.zeroShift(i);
+        this.refresh();
+      });
+      const fwd = el('button', 'ui-btn ui-mini', '▶');
+      fwd.title = 'shift this head one cell forward (delay +1)';
+      fwd.addEventListener('click', () => {
+        this.engine.shiftHead(i, +1);
+        this.refresh();
+      });
+      const rev = el('button', 'ui-btn ui-mini', '⇄');
+      rev.title = 'reverse this head’s direction';
+      rev.addEventListener('click', () => this.engine.reverseHead(i));
+      row.append(back, delay, fwd, rev);
 
       this.groupUI[ball.kind].list.appendChild(row);
-      this.trackRows.push({ axis: ball.kind, index: i, ball, row, sel, durSel, keySel, mBtn, sBtn });
+      this.trackRows.push({ axis: ball.kind, index: i, ball, row, sel, durSel, keySel, delay, mBtn, sBtn });
     });
 
     ['X', 'Y', 'Z'].forEach((axis) => this._applyTrackCount(axis, this.engine.div[axis]));
@@ -584,20 +624,51 @@ export class UIPanel {
     return this._groupRows(axis)[0]?.ball || null;
   }
 
+  _groupNoteLines(axis) {
+    const scale = this._groupRootBall(axis)?.band?.scale || 'scale';
+    const notes = this._groupRows(axis)
+      .filter((r) => r.ball.active !== false)
+      .map((r) => {
+        const midi = this._trackNote(r.ball);
+        return midi == null ? '—' : noteName(midi);
+      });
+    if (!notes.length) return ['', '', '', ''];
+    const chunkSize = Math.max(1, Math.ceil(notes.length / 4));
+    const out = [];
+    for (let i = 0; i < 4; i++)
+      out.push(`${axis} · ${scale}\n${notes.slice(i * chunkSize, (i + 1) * chunkSize).join(' · ')}`);
+    return out;
+  }
+
+  // The actual MIDI note a track currently plays: its row's scale degree through
+  // the head's band (purely positional — the same value the sequencer sounds for
+  // a railed head). Reads the head's live cell, so it follows scale/key changes.
+  _trackNote(ball) {
+    if (!ball.band) return null;
+    const cell = this.engine.cellOf(ball);
+    return this.sequencer.positionalPitch(ball, cell.i, cell.j);
+  }
+
+  // Set the WHOLE band (all its tracks) to one scale+root. CRUCIAL: every track
+  // shares the SAME root — we do NOT stack the tracks up the scale anymore. With
+  // a uniform band, a cell's pitch is PURELY POSITIONAL: it depends only on the
+  // band (scale+key) and the cell's perpendicular level, never on which physical
+  // head happens to cross it. That is what keeps the click-preview and the
+  // running sequencer in agreement on EVERY face. (The old per-track root
+  // stacking coupled pitch to track identity; off the home face a head's track
+  // index ≠ its cell row, so the previewed note and the played note diverged —
+  // "a completely different scale".) Per-track keys can still be set individually
+  // from the track rows for deliberate detuning.
   _applyGroupScale(axis, scaleName) {
     const rows = this._groupRows(axis);
     if (!rows.length) return;
     const rootBall = rows[0].ball;
     if (!rootBall.band) return;
-    rootBall.band.scale = scaleName;
-    const offs = SCALES[scaleName] || SCALES.pentatonic;
-    const base = rootBall.band.root;
-    for (let t = 0; t < rows.length; t++) {
-      const b = rows[t].ball;
-      if (!b.band) continue;
-      b.band.scale = scaleName;
-      const oct = Math.floor(t / offs.length);
-      b.band.root = base + 12 * oct + offs[t % offs.length];
+    const root = rootBall.band.root; // keep the band's current key
+    for (const r of rows) {
+      if (!r.ball.band) continue;
+      r.ball.band.scale = scaleName;
+      r.ball.band.root = root;
     }
     this._syncGroupKeyState(axis);
   }
@@ -607,23 +678,25 @@ export class UIPanel {
     if (!rows.length) return;
     const rootBall = rows[0].ball;
     if (!rootBall.band) return;
-    rootBall.band.root = Math.floor(rootBall.band.root / 12) * 12 + keyClass;
-    this._applyGroupScale(axis, rootBall.band.scale);
+    const root = Math.floor(rootBall.band.root / 12) * 12 + keyClass;
+    for (const r of rows) {
+      if (!r.ball.band) continue;
+      r.ball.band.root = root;
+    }
+    this._syncGroupKeyState(axis);
   }
 
+  // Mark a track's key selector as "off-band" when its root no longer matches the
+  // band's shared root (a deliberate per-track detune) — a quiet visual hint.
   _syncGroupKeyState(axis) {
     const rows = this._groupRows(axis);
     if (!rows.length) return;
     const rootBall = rows[0].ball;
     if (!rootBall.band) return;
-    const offs = SCALES[rootBall.band.scale] || SCALES.pentatonic;
-    const expected = rows.map((_, t) => {
-      const oct = Math.floor(t / offs.length);
-      return (((rootBall.band.root + 12 * oct + offs[t % offs.length]) % 12) + 12) % 12;
-    });
-    rows.forEach((r, t) => {
+    const expected = ((rootBall.band.root % 12) + 12) % 12;
+    rows.forEach((r) => {
       const got = ((r.ball.band.root % 12) + 12) % 12;
-      r.keySel.classList.toggle('ui-note-offscale', got !== expected[t]);
+      r.keySel.classList.toggle('ui-note-offscale', got !== expected);
     });
   }
 
@@ -639,19 +712,19 @@ export class UIPanel {
       groups: {
         X: {
           tracks: this._groupRows('X').filter((r) => r.ball.active !== false).length,
-          bpm: e.groupBpm.X ?? e.bpm,
+          bpm: e.groupBpm.X ?? null,
           scale: this._groupRootBall('X')?.band?.scale,
           key: (((this._groupRootBall('X')?.band?.root ?? 60) % 12) + 12) % 12,
         },
         Y: {
           tracks: this._groupRows('Y').filter((r) => r.ball.active !== false).length,
-          bpm: e.groupBpm.Y ?? e.bpm,
+          bpm: e.groupBpm.Y ?? null,
           scale: this._groupRootBall('Y')?.band?.scale,
           key: (((this._groupRootBall('Y')?.band?.root ?? 57) % 12) + 12) % 12,
         },
         Z: {
           tracks: this._groupRows('Z').filter((r) => r.ball.active !== false).length,
-          bpm: e.groupBpm.Z ?? e.bpm,
+          bpm: e.groupBpm.Z ?? null,
           scale: this._groupRootBall('Z')?.band?.scale,
           key: (((this._groupRootBall('Z')?.band?.root ?? 64) % 12) + 12) % 12,
         },
@@ -661,6 +734,7 @@ export class UIPanel {
         noteSound: this.flags.noteSound,
         collisionSound: this.flags.collisionSound,
         collisionIndex: this.audio.collisionSound,
+        collisionSource: this.sequencer.collisionSource,
         midiEnabled: this.midi.enabled,
         midiChannel: this.midi.channel,
       },
@@ -715,6 +789,7 @@ export class UIPanel {
     if (sn.noteSound != null) this.flags.noteSound = sn.noteSound;
     if (sn.collisionSound != null) this.flags.collisionSound = sn.collisionSound;
     if (sn.collisionIndex != null) this.audio.collisionSound = sn.collisionIndex;
+    if (sn.collisionSource != null) this.sequencer.collisionSource = sn.collisionSource;
     if (sn.midiChannel != null) this.midi.channel = sn.midiChannel;
     const vw = p.view || {};
     if (vw.surfaceStyle != null) this.view.setSurfaceStyle(vw.surfaceStyle);
@@ -801,6 +876,7 @@ export class UIPanel {
     this.railBtn.textContent = this.engine.railed ? 'Derail' : 'Rail';
     this.bpmInput.value = this.engine.bpm;
     this.collSel.value = this.audio.collisionSound;
+    if (this.collSrcSel) this.collSrcSel.value = this.sequencer.collisionSource;
     this.surfaceSel.value = this.view.surfaceStyle;
     this.gapInput.value = this.view.facetGap;
     this.popInput.value = this.view.popAmount;
@@ -820,10 +896,13 @@ export class UIPanel {
     this.chanSel.value = this.midi.channel;
     this.midiSel.disabled = !this.midi.enabled;
     this.chanSel.disabled = !this.midi.enabled;
+    this.view.setAutoRotate(this.spinChk?.checked);
+    this.view.setAxisLabelsVisible('X', this.labelXChk?.checked);
+    this.view.setAxisLabelsVisible('Y', this.labelYChk?.checked);
+    this.view.setAxisLabelsVisible('Z', this.labelZChk?.checked);
     for (const axis of ['X', 'Y', 'Z']) {
       const rows = this._groupRows(axis);
       this.groupUI[axis].countSel.value = String(rows.filter((r) => r.ball.active !== false).length || 1);
-      this.groupUI[axis].bpmInput.value = String(this.engine.groupBpm[axis] ?? this.engine.bpm);
       const rootBall = this._groupRootBall(axis);
       if (rootBall?.band) {
         this.groupUI[axis].scaleSel.value = rootBall.band.scale;
@@ -832,6 +911,7 @@ export class UIPanel {
       const running = rows.some((r) => r.ball.active !== false && !r.ball.muted);
       this.groupUI[axis].runBtn.textContent = running ? 'Stop group' : 'Start group';
       this._syncGroupKeyState(axis);
+      this.view.setAxisLabels(axis, this._groupNoteLines(axis));
     }
     this.engine.balls.forEach((ball, i) => {
       const r = this.trackRows[i];
@@ -843,11 +923,34 @@ export class UIPanel {
       r.durSel.value = String(ball.rate);
       r.mBtn.classList.toggle('on', !!ball.muted);
       r.sBtn.classList.toggle('on', !!ball.solo);
+      // delay readout (cells from home); flag a non-zero phase shift
+      if (r.delay) {
+        const n = ball.shift || 0;
+        r.delay.textContent = n > 0 ? '+' + n : String(n);
+        r.delay.classList.toggle('nonzero', n !== 0);
+      }
       if (ball.band) {
-        r.keySel.value = ((ball.band.root % 12) + 12) % 12;
+        // the actual note this track plays (its scale degree), with octave
+        const note = this._trackNote(ball);
+        if (note != null) r.keySel.value = String(note);
+        // green = notes that belong to the band's scale (any octave), so the
+        // in-scale choices stand out and an off-scale pick is a clear departure.
+        const offs = SCALES[ball.band.scale] || [];
+        const tonic = ((ball.band.root % 12) + 12) % 12;
+        for (const opt of r.keySel.options) {
+          const rel = (((+opt.value - tonic) % 12) + 12) % 12;
+          opt.classList.toggle('in-scale', offs.includes(rel));
+        }
       }
     });
   }
+}
+
+// per-track Note selector range (MIDI), and MIDI→name with octave (C4 = 60).
+const NOTE_MIN = 24; // C1
+const NOTE_MAX = 96; // C7
+function noteName(m) {
+  return NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
 }
 
 // little DOM helpers
