@@ -16,7 +16,7 @@ export class UIPanel {
     this.sequencer = sequencer;
     this.midi = midi;
     this.controls = controls;
-    this.flags = flags; // { noteSound, collisionSound } — read by main's router
+    this.flags = flags; // { builtInSound, noteSound, collisionSound } — read by main's router
     this.setDivisions = setDivisions || (() => {}); // main's grid-resolution rebuild
     this.rotateBands = rotateBands || (() => this.engine.swapBands()); // main's band rotation
     this._build();
@@ -144,6 +144,7 @@ export class UIPanel {
     const s = this._section('Sound');
     const row = el('div', 'ui-row');
 
+    this.builtInChk = inlineCheck(row, 'Built-in', true, (on) => (this.flags.builtInSound = on));
     this.noteChk = inlineCheck(row, 'Notes', true, (on) => (this.flags.noteSound = on));
     this.collChk = inlineCheck(row, 'Collisions', true, (on) => (this.flags.collisionSound = on));
 
@@ -731,6 +732,7 @@ export class UIPanel {
       },
       transport: { bpm: e.bpm, stepMode: e.stepMode, railed: e.railed, gravity: e.gravityStrength },
       sound: {
+        builtInSound: this.flags.builtInSound,
         noteSound: this.flags.noteSound,
         collisionSound: this.flags.collisionSound,
         collisionIndex: this.audio.collisionSound,
@@ -786,6 +788,7 @@ export class UIPanel {
     if (t.railed != null) this.engine.railed = t.railed;
     if (t.gravity != null) this.engine.gravityStrength = t.gravity;
     const sn = p.sound || {};
+    if (sn.builtInSound != null) this.flags.builtInSound = sn.builtInSound;
     if (sn.noteSound != null) this.flags.noteSound = sn.noteSound;
     if (sn.collisionSound != null) this.flags.collisionSound = sn.collisionSound;
     if (sn.collisionIndex != null) this.audio.collisionSound = sn.collisionIndex;
@@ -876,6 +879,9 @@ export class UIPanel {
     this.railBtn.textContent = this.engine.railed ? 'Derail' : 'Rail';
     this.bpmInput.value = this.engine.bpm;
     this.collSel.value = this.audio.collisionSound;
+    if (this.builtInChk) this.builtInChk.checked = this.flags.builtInSound !== false;
+    if (this.noteChk) this.noteChk.checked = !!this.flags.noteSound;
+    if (this.collChk) this.collChk.checked = !!this.flags.collisionSound;
     if (this.collSrcSel) this.collSrcSel.value = this.sequencer.collisionSource;
     this.surfaceSel.value = this.view.surfaceStyle;
     this.gapInput.value = this.view.facetGap;

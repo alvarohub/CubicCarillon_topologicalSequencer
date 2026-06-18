@@ -32,6 +32,7 @@
     "gravity": 0
   },
   "sound": {
+    "builtInSound": true,
     "noteSound": true,
     "collisionSound": true,
     "collisionIndex": 0,

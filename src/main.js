@@ -143,7 +143,7 @@ const setStatus = (t) => {
 };
 const controls = new Controls({ engine, view, audio, sequencer, startButtonId: 'start', statusFn: setStatus });
 // sound routing flags (toggled from the panel)
-const flags = { noteSound: true, collisionSound: true };
+const flags = { builtInSound: true, noteSound: true, collisionSound: true };
 
 // Drop only the armed/muted cells that fall OUTSIDE the reshaped grid, so a
 // division change conserves every note that still has a cell to live on (the
@@ -262,7 +262,7 @@ let last = performance.now();
 function handleEnter(ev) {
   const note = sequencer.noteForEnter(ev);
   if (!note) return;
-  if (flags.noteSound) audio.play(note, ev.when); // scheduled on the audio clock
+  if (flags.builtInSound && flags.noteSound) audio.play(note, ev.when); // scheduled on the audio clock
   if (midi.enabled) midi.note(note); // mirror to real synths
   view.flash(ev.ball); // the reading head pulses brighter (brightness only, not hue)
   view.strikeCell(ev.faceId, ev.i, ev.j, ev.ball.color); // flash the pad/facet (instrument colour)
@@ -298,11 +298,11 @@ function frame(now) {
     if (!flags.collisionSound) continue;
     const res = sequencer.voicesForCollision(ev);
     if (res.fixed) {
-      audio.playCollision({}, ev.when);
+      if (flags.builtInSound) audio.playCollision({}, ev.when);
       if (midi.enabled) midi.collision({});
     } else {
       for (const voice of res.voices) {
-        audio.play(voice, ev.when);
+        if (flags.builtInSound) audio.play(voice, ev.when);
         if (midi.enabled) midi.note(voice);
       }
     }
