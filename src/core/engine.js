@@ -375,6 +375,18 @@ export class Engine {
     b.y = -face.sv / 2 + (this._indexV(b.y, face) + 0.5) * cv;
   }
 
+  // Compare current heading to spawn heading. If opposite, the head is in
+  // reversed mode and align should keep it that way.
+  _isReversedFromHome(b) {
+    const hx = b.home?.vx ?? 1;
+    const hy = b.home?.vy ?? 0;
+    const hv = Math.hypot(hx, hy);
+    const bv = Math.hypot(b.vx, b.vy);
+    if (hv < 1e-9 || bv < 1e-9) return false;
+    const dot = (b.vx / bv) * (hx / hv) + (b.vy / bv) * (hy / hv);
+    return dot < 0;
+  }
+
   // Per-GROUP align (the bar button, done right): line every active head of one
   // axis back up into a single bar. A band's heads loop around their world axis
   // on DIFFERENT faces, so a per-face cell index is NOT a common phase — the old
@@ -383,9 +395,17 @@ export class Engine {
   // phase (home): the first cell along its travel axis, on its OWN row. Every
   // head ends in the same column (step 0) of the bar, only their pitch rows
   // differ — a clean, predictable alignment regardless of where they had drifted.
+  // Direction is preserved: a head that was reversed before align stays reversed.
   alignGroup(kind) {
     const heads = this.balls.filter((b) => b.kind === kind && b.active !== false);
-    for (const b of heads) this.resetHead(b);
+    for (const b of heads) {
+      const reversed = this._isReversedFromHome(b);
+      this.resetHead(b);
+      if (reversed) {
+        b.vx = -b.vx;
+        b.vy = -b.vy;
+      }
+    }
   }
 
   // Rotate EVERY head's band: X -> Y -> Z -> X. Positions stay put; velocity is
