@@ -24,7 +24,10 @@ export class Controls {
     this.statusFn = statusFn || (() => {});
     this.onChange = null; // optional: UI panel mirror, called after any state change
     this._menu = null;
+    this._unlockAudioBound = null;
+    this._audioUnlocked = false;
     this._wireKeyboard();
+    this._wireGlobalAudioUnlock();
     this._wirePicking();
     this._wireVelocity();
     this._wireStart(startButtonId);
@@ -64,6 +67,25 @@ export class Controls {
       }
       this._notify();
     });
+  }
+
+  // iOS/Safari can keep audio suspended until a trusted gesture reaches the
+  // page. Arm a global one-shot unlock so any early tap/key safely resumes the
+  // AudioContext before the user starts interacting with cells/tracks.
+  _wireGlobalAudioUnlock() {
+    const unlock = () => {
+      if (this._audioUnlocked) return;
+      this.audio.resume();
+      this._audioUnlocked = true;
+      window.removeEventListener('pointerdown', this._unlockAudioBound, true);
+      window.removeEventListener('keydown', this._unlockAudioBound, true);
+      window.removeEventListener('touchstart', this._unlockAudioBound, true);
+      this._unlockAudioBound = null;
+    };
+    this._unlockAudioBound = unlock;
+    window.addEventListener('pointerdown', this._unlockAudioBound, true);
+    window.addEventListener('keydown', this._unlockAudioBound, true);
+    window.addEventListener('touchstart', this._unlockAudioBound, true);
   }
 
   // route taps from the view's raycaster:
@@ -251,6 +273,17 @@ export class Controls {
     if (!btn) return;
     btn.addEventListener('click', async () => {
       this.audio.resume();
+      this._audioUnlocked = true;
+      if (this._unlockAudioBound) {
+        window.removeEventListener('pointerdown', this._unlockAudioBound, true);
+        window.removeEventListener('keydown', this._unlockAudioBound, true);
+        window.removeEventListener('touchstart', this._unlockAudioBound, true);
+        this._unlockAudioBound = null;
+      }
+      // Audible confirmation on iPad: if this ping is heard, internal audio is
+      // alive and any remaining silence is track/score state, not audio unlock.
+      this.audio.play({ midi: 84, instrument: 0, velocity: 96, duration: 0.12 }, this.audio.now() + 0.02);
+      this.statusFn('audio ready · wake a head and arm a cell');
       await this._requestOrientation();
       document.getElementById('overlay')?.classList.add('hidden');
     });
