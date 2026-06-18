@@ -141,9 +141,18 @@ const statusEl = document.getElementById('status');
 const setStatus = (t) => {
   if (statusEl) statusEl.textContent = t;
 };
-const controls = new Controls({ engine, view, audio, sequencer, startButtonId: 'start', statusFn: setStatus });
 // sound routing flags (toggled from the panel)
 const flags = { builtInSound: true, noteSound: true, collisionSound: true };
+const controls = new Controls({
+  engine,
+  view,
+  audio,
+  sequencer,
+  midi,
+  flags,
+  startButtonId: 'start',
+  statusFn: setStatus,
+});
 
 // Drop only the armed/muted cells that fall OUTSIDE the reshaped grid, so a
 // division change conserves every note that still has a cell to live on (the

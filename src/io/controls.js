@@ -16,11 +16,13 @@
 import { INSTRUMENTS } from './audio.js';
 
 export class Controls {
-  constructor({ engine, view, audio, sequencer, startButtonId, statusFn }) {
+  constructor({ engine, view, audio, sequencer, midi, flags, startButtonId, statusFn }) {
     this.engine = engine;
     this.view = view;
     this.audio = audio;
     this.sequencer = sequencer;
+    this.midi = midi || null;
+    this.flags = flags || { builtInSound: true };
     this.statusFn = statusFn || (() => {});
     this.onChange = null; // optional: UI panel mirror, called after any state change
     this._menu = null;
@@ -180,15 +182,14 @@ export class Controls {
     const engraved = cell && cell.pitch != null ? cell.pitch : null; // absolute note wins
     const midi = engraved != null ? engraved : seq.bandFor(ref).midiForLevel(Math.max(0, level));
     const vel = seq.velocityAt(faceId, i, j) || seq.defaultVelocity || 0.7;
-    this.audio.play(
-      {
-        midi,
-        instrument: ref.instrument,
-        velocity: Math.max(1, Math.min(127, Math.round(vel * 127))),
-        duration: 0.25,
-      },
-      this.audio.now(),
-    );
+    const note = {
+      midi,
+      instrument: ref.instrument,
+      velocity: Math.max(1, Math.min(127, Math.round(vel * 127))),
+      duration: 0.25,
+    };
+    if (this.flags.builtInSound !== false) this.audio.play(note, this.audio.now());
+    if (this.midi?.enabled) this.midi.note(note);
   }
 
   // Pause/unpause one head. ONLY the head stops: its armed cells keep sounding
@@ -282,7 +283,8 @@ export class Controls {
       }
       // Audible confirmation on iPad: if this ping is heard, internal audio is
       // alive and any remaining silence is track/score state, not audio unlock.
-      this.audio.play({ midi: 84, instrument: 0, velocity: 96, duration: 0.12 }, this.audio.now() + 0.02);
+      if (this.flags.builtInSound !== false)
+        this.audio.play({ midi: 84, instrument: 0, velocity: 96, duration: 0.12 }, this.audio.now() + 0.02);
       this.statusFn('audio ready · wake a head and arm a cell');
       await this._requestOrientation();
       document.getElementById('overlay')?.classList.add('hidden');

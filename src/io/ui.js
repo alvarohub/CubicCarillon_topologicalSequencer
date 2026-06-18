@@ -488,7 +488,14 @@ export class UIPanel {
         this.engine.alignGroup(axis);
         this.refresh();
       });
-      top.append(shiftL, shiftR, alignBtn);
+      const revBtn = el('button', 'ui-btn ui-mini', '⇄');
+      revBtn.title = `reverse ${axis} group direction`;
+      revBtn.addEventListener('click', () => {
+        for (const r of this.trackRows)
+          if (r.axis === axis && r.ball.active !== false) this.engine.reverseHead(r.index);
+        this.refresh();
+      });
+      top.append(shiftL, shiftR, alignBtn, revBtn);
 
       top.appendChild(el('label', 'ui-label slim', 'Scale'));
       const scaleSel = el('select', 'ui-select ui-scale');
@@ -512,7 +519,7 @@ export class UIPanel {
       const list = el('div', 'ui-track-list');
       wrap.appendChild(list);
       s.appendChild(wrap);
-      this.groupUI[axis] = { wrap, list, countSel, runBtn, scaleSel, keySel };
+      this.groupUI[axis] = { wrap, list, countSel, runBtn, scaleSel, keySel, revBtn };
     };
 
     ['X', 'Y', 'Z'].forEach(makeGroup);
@@ -569,6 +576,17 @@ export class UIPanel {
           const cur = this._trackNote(ball);
           if (cur != null) ball.band.root += +keySel.value - cur; // transpose to the picked note
           this._syncGroupKeyState(ball.kind);
+          const note = {
+            midi: +keySel.value,
+            instrument: ball.instrument,
+            velocity: 96,
+            duration: 0.22,
+          };
+          if (this.flags.builtInSound !== false) {
+            this.audio.resume();
+            this.audio.play(note, this.audio.now());
+          }
+          if (this.midi.enabled) this.midi.note(note);
           this.refresh();
         }
       });
@@ -596,11 +614,26 @@ export class UIPanel {
       });
       const rev = el('button', 'ui-btn ui-mini', '⇄');
       rev.title = 'reverse this head’s direction';
-      rev.addEventListener('click', () => this.engine.reverseHead(i));
+      rev.addEventListener('click', () => {
+        this.engine.reverseHead(i);
+        this.refresh();
+      });
       row.append(back, delay, fwd, rev);
 
       this.groupUI[ball.kind].list.appendChild(row);
-      this.trackRows.push({ axis: ball.kind, index: i, ball, row, sel, durSel, keySel, delay, mBtn, sBtn });
+      this.trackRows.push({
+        axis: ball.kind,
+        index: i,
+        ball,
+        row,
+        sel,
+        durSel,
+        keySel,
+        delay,
+        mBtn,
+        sBtn,
+        revBtn: rev,
+      });
     });
 
     ['X', 'Y', 'Z'].forEach((axis) => this._applyTrackCount(axis, this.engine.div[axis]));
@@ -639,6 +672,19 @@ export class UIPanel {
     for (let i = 0; i < 4; i++)
       out.push(`${axis} · ${scale}\n${notes.slice(i * chunkSize, (i + 1) * chunkSize).join(' · ')}`);
     return out;
+  }
+
+  // Reverse state is derived from direction: if the current velocity points
+  // opposite to the spawn/home velocity, the head is in reversed mode.
+  _isReversed(ball) {
+    if (!ball) return false;
+    const hx = ball.home?.vx ?? 1;
+    const hy = ball.home?.vy ?? 0;
+    const hv = Math.hypot(hx, hy);
+    const bv = Math.hypot(ball.vx, ball.vy);
+    if (hv < 1e-9 || bv < 1e-9) return false;
+    const dot = (ball.vx / bv) * (hx / hv) + (ball.vy / bv) * (hy / hv);
+    return dot < 0;
   }
 
   // The actual MIDI note a track currently plays: its row's scale degree through
@@ -916,6 +962,14 @@ export class UIPanel {
       }
       const running = rows.some((r) => r.ball.active !== false && !r.ball.muted);
       this.groupUI[axis].runBtn.textContent = running ? 'Stop group' : 'Start group';
+      const revOn = rows.some((r) => r.ball.active !== false && this._isReversed(r.ball));
+      if (this.groupUI[axis].revBtn) {
+        this.groupUI[axis].revBtn.classList.toggle('on', revOn);
+        this.groupUI[axis].revBtn.textContent = revOn ? '↺' : '⇄';
+        this.groupUI[axis].revBtn.title = revOn
+          ? `group ${axis} is reversed — click to toggle`
+          : `group ${axis} is forward — click to reverse`;
+      }
       this._syncGroupKeyState(axis);
       this.view.setAxisLabels(axis, this._groupNoteLines(axis));
     }
@@ -929,6 +983,12 @@ export class UIPanel {
       r.durSel.value = String(ball.rate);
       r.mBtn.classList.toggle('on', !!ball.muted);
       r.sBtn.classList.toggle('on', !!ball.solo);
+      if (r.revBtn) {
+        const revOn = this._isReversed(ball);
+        r.revBtn.classList.toggle('on', revOn);
+        r.revBtn.textContent = revOn ? '↺' : '⇄';
+        r.revBtn.title = revOn ? 'reversed direction (click to toggle)' : 'forward direction (click to reverse)';
+      }
       // delay readout (cells from home); flag a non-zero phase shift
       if (r.delay) {
         const n = ball.shift || 0;
