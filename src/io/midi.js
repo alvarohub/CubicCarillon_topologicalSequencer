@@ -2,8 +2,18 @@
 //
 // WebMIDI output adapter — the bridge to REAL synths. Same event vocabulary as
 // audio.js: noteFromEnter → note(), collision → collision(). Notes are sent as
-// noteOn with a scheduled noteOff after `duration`. Melodic tracks go to
-// `channel`, drum/collision hits to channel 10 (GM percussion convention).
+// noteOn with a scheduled noteOff after `duration`.
+//
+// Real sequencers usually separate instruments by MIDI CHANNEL and optionally
+// send a PROGRAM CHANGE on that channel to pick the patch. Drums are the one
+// big exception: in GM they live on channel 10 and different drum sounds are
+// chosen by NOTE NUMBER, not by program. We mirror that here:
+//   - melodic head instruments -> their own channels + GM-ish programs
+//   - drum head instruments    -> drumChannel + drum-specific note numbers
+//
+// The UI 'Ch' control is the BASE channel for melodic instruments. Triangle on
+// base ch, Sine on next ch, etc. This keeps instruments separable in hosts like
+// Logic/AUM while still letting the user slide the whole mapping up/down.
 //
 // Requires a secure context (https or localhost). Devices are listed after
 // init(); the UI offers them in a dropdown.
@@ -17,6 +27,7 @@ export class MidiOut {
     this.drumChannel = 10; // GM drums
     this.drumNote = 38; // GM snare for collisions, overridable
     this._error = null;
+    this._lastProgramByChannel = new Map();
   }
 
   get available() {
@@ -45,6 +56,7 @@ export class MidiOut {
 
   selectOutput(id) {
     this.output = this.access ? this.access.outputs.get(id) || null : null;
+    this._lastProgramByChannel.clear();
   }
 
   _send(bytes) {
@@ -56,12 +68,64 @@ export class MidiOut {
     }
   }
 
-  // Play a sequencer note event { midi, velocity, duration } on `channel`.
-  note({ midi, velocity = 78, duration = 0.18 } = {}) {
+  _clipChannel(ch) {
+    return Math.max(1, Math.min(16, ch | 0));
+  }
+
+  _melodicChannel(offset = 0) {
+    let ch = this._clipChannel(this.channel + offset);
+    if (ch >= this.drumChannel) ch = this._clipChannel(ch + 1);
+    if (ch === this.drumChannel) ch = this._clipChannel(ch + 1);
+    return ch;
+  }
+
+  _ensureProgram(channel, program) {
+    if (program == null) return;
+    const ch = (this._clipChannel(channel) - 1) & 0x0f;
+    const pgm = Math.max(0, Math.min(127, program | 0));
+    if (this._lastProgramByChannel.get(ch) === pgm) return;
+    this._send([0xc0 | ch, pgm]);
+    this._lastProgramByChannel.set(ch, pgm);
+  }
+
+  _routeForInstrument(instrument) {
+    // melodic instruments 0..6 = distinct channels + fixed program choices
+    switch (instrument) {
+      case 0:
+        return { channel: this._melodicChannel(0), program: 80 }; // Triangle -> synth lead-ish
+      case 1:
+        return { channel: this._melodicChannel(1), program: 88 }; // Sine -> warm pad-ish
+      case 2:
+        return { channel: this._melodicChannel(2), program: 80 }; // Square
+      case 3:
+        return { channel: this._melodicChannel(3), program: 81 }; // Saw
+      case 4:
+        return { channel: this._melodicChannel(4), program: 14 }; // Bell -> tubular bells
+      case 5:
+        return { channel: this._melodicChannel(5), program: 68 }; // Reed -> oboe-like
+      case 6:
+        return { channel: this._melodicChannel(6), program: 0 }; // Piano
+      case 7:
+        return { channel: this.drumChannel, drumNote: 36 }; // Kick
+      case 8:
+        return { channel: this.drumChannel, drumNote: 38 }; // Snare
+      case 9:
+        return { channel: this.drumChannel, drumNote: 42 }; // HiHat
+      case 10:
+        return { channel: this.drumChannel, drumNote: 75 }; // Clave
+      default:
+        return { channel: this._melodicChannel(0), program: 0 };
+    }
+  }
+
+  // Play a sequencer note event { midi, velocity, duration, instrument }.
+  note({ midi, velocity = 78, duration = 0.18, instrument = 0 } = {}) {
     if (midi == null) return;
-    const ch = (this.channel - 1) & 0x0f;
-    const n = Math.max(0, Math.min(127, Math.round(midi)));
+    const route = this._routeForInstrument(instrument);
+    const ch = (this._clipChannel(route.channel) - 1) & 0x0f;
+    const n = Math.max(0, Math.min(127, Math.round(route.drumNote != null ? route.drumNote : midi)));
     const v = Math.max(1, Math.min(127, Math.round(velocity)));
+    this._ensureProgram(route.channel, route.program);
     this._send([0x90 | ch, n, v]);
     setTimeout(() => this._send([0x80 | ch, n, 0]), Math.max(10, duration * 1000));
   }
@@ -76,7 +140,10 @@ export class MidiOut {
 
   // Silence everything (panic) — sent on both channels.
   allNotesOff() {
-    for (const c of [this.channel - 1, this.drumChannel - 1]) {
+    const chans = new Set([this.drumChannel]);
+    for (let i = 0; i <= 6; i++) chans.add(this._melodicChannel(i));
+    for (const channel of chans) {
+      const c = (this._clipChannel(channel) - 1) & 0x0f;
       this._send([0xb0 | (c & 0x0f), 123, 0]);
     }
   }

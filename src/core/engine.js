@@ -62,6 +62,7 @@ export class Engine {
 
     // SOLO (Logic-style): when any active head is soloed, all the others freeze
     this.soloActive = false;
+    this.groupPaused = { X: false, Y: false, Z: false };
   }
 
   refreshSolo() {
@@ -70,7 +71,12 @@ export class Engine {
 
   // a head is silent if paused, or if a solo is active elsewhere
   _silent(b) {
-    return b.muted || (this.soloActive && !b.solo);
+    return !!b.muted || !!this.groupPaused[b.kind] || (this.soloActive && !b.solo);
+  }
+
+  toggleGroupPause(kind) {
+    this.groupPaused[kind] = !this.groupPaused[kind];
+    return this.groupPaused[kind];
   }
 
   // ---- grid helpers (per-axis, per-direction) ----

@@ -460,10 +460,7 @@ export class UIPanel {
 
       const runBtn = el('button', 'ui-btn', 'Stop group');
       runBtn.addEventListener('click', () => {
-        const rows = this.trackRows.filter((r) => r.axis === axis && r.ball.active !== false);
-        const running = rows.some((r) => !r.ball.muted);
-        rows.forEach((r) => (r.ball.muted = running));
-        this.engine.refreshSolo();
+        this.engine.toggleGroupPause(axis);
         this.refresh();
       });
       top.appendChild(runBtn);
@@ -960,8 +957,9 @@ export class UIPanel {
         this.groupUI[axis].scaleSel.value = rootBall.band.scale;
         this.groupUI[axis].keySel.value = String(((rootBall.band.root % 12) + 12) % 12);
       }
-      const running = rows.some((r) => r.ball.active !== false && !r.ball.muted);
-      this.groupUI[axis].runBtn.textContent = running ? 'Stop group' : 'Start group';
+      const paused = !!this.engine.groupPaused[axis];
+      this.groupUI[axis].runBtn.textContent = paused ? 'Start group' : 'Stop group';
+      this.groupUI[axis].runBtn.classList.toggle('on', paused);
       const revOn = rows.some((r) => r.ball.active !== false && this._isReversed(r.ball));
       if (this.groupUI[axis].revBtn) {
         this.groupUI[axis].revBtn.classList.toggle('on', revOn);
