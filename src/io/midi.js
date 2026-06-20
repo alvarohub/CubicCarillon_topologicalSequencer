@@ -13,7 +13,9 @@
 //
 // The UI 'Ch' control is the BASE channel for melodic instruments. Triangle on
 // base ch, Sine on next ch, etc. This keeps instruments separable in hosts like
-// Logic/AUM while still letting the user slide the whole mapping up/down.
+// Logic/AUM while still letting the user slide the whole mapping up/down. MIDI
+// itself only has 16 channels per PORT, so when the mapping reaches the end it
+// wraps around the valid melodic-channel pool (skipping the drum channel).
 //
 // Requires a secure context (https or localhost). Devices are listed after
 // init(); the UI offers them in a dropdown.
@@ -73,10 +75,12 @@ export class MidiOut {
   }
 
   _melodicChannel(offset = 0) {
-    let ch = this._clipChannel(this.channel + offset);
-    if (ch >= this.drumChannel) ch = this._clipChannel(ch + 1);
-    if (ch === this.drumChannel) ch = this._clipChannel(ch + 1);
-    return ch;
+    const pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16];
+    const base = this._clipChannel(this.channel);
+    let idx = pool.indexOf(base);
+    if (idx < 0) idx = pool.findIndex((ch) => ch > base);
+    if (idx < 0) idx = 0;
+    return pool[(idx + offset) % pool.length];
   }
 
   _ensureProgram(channel, program) {
