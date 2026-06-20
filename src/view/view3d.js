@@ -32,8 +32,10 @@ export class View3D {
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
     this.camera.position.set(0, 0, 6);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // On iPad Safari, 2x DPR can push this scene into long-frame watchdog
+    // territory. Cap to 1.5x for stability while keeping crisp visuals.
+    this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     // physically-based tone mapping makes the acrylic specular and the
     // light-emitting heads read correctly (emissive can glow past white).
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;

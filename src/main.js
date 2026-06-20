@@ -296,6 +296,13 @@ if (location.search.includes('debug')) {
 // unifies continuous and step motion. In step mode a global clock ticks at BPM;
 // in continuous mode heads glide and cross cells at their own tempi (polyrhythm).
 let last = performance.now();
+let collTick = 0;
+
+// Demo-safety limits for weaker devices (iPad Safari): avoid frame spikes that
+// can trigger watchdog tab reloads without explicit JS errors.
+const MAX_ENTERS_PER_FRAME = 96;
+const MAX_COLLISIONS_PER_FRAME = 24;
+const COLLISION_CHECK_DIV = 2; // evaluate collisions every Nth frame
 
 function handleEnter(ev) {
   const note = sequencer.noteForEnter(ev);
@@ -324,14 +331,22 @@ function frame(now) {
     // exactly like continuous. Each emitted event carries `when` — the exact
     // audio-clock instant it sounds.
     view.setSnap(engine.stepMode);
-    for (const ev of engine.update(dt, audioNow)) handleEnter(ev);
+    let enterCount = 0;
+    for (const ev of engine.update(dt, audioNow)) {
+      handleEnter(ev);
+      if (++enterCount >= MAX_ENTERS_PER_FRAME) break;
+    }
 
     // Head intersections -> ONE event that draws on the two heads. The global
     // collision SOURCE (sequencer.collisionSource) decides the sound: a fixed
     // chosen voice, the armed note under the meeting, or both heads' instruments
     // launched together (a dyad from the geometry). Scheduled on the audio clock,
     // aligned to the heads' own notes so there is no flam.
-    for (const ev of engine.collisions(audioNow)) {
+    collTick = (collTick + 1) % COLLISION_CHECK_DIV;
+    const stressed = dt > 0.04; // ~25fps or worse: skip expensive collision pass
+    const collisionEvents = !stressed && collTick === 0 ? engine.collisions(audioNow) : [];
+    let colCount = 0;
+    for (const ev of collisionEvents) {
       view.flash(ev.a);
       view.flash(ev.b);
       if (!flags.collisionSound) continue;
@@ -345,6 +360,7 @@ function frame(now) {
           if (midi.enabled) midi.note(voice);
         }
       }
+      if (++colCount >= MAX_COLLISIONS_PER_FRAME) break;
     }
 
     view.sync(now);
