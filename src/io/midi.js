@@ -61,13 +61,18 @@ export class MidiOut {
     this._lastProgramByChannel.clear();
   }
 
-  _send(bytes) {
+  _send(bytes, atMs) {
     if (!this.enabled || !this.output) return;
     try {
-      this.output.send(bytes);
+      if (atMs != null) this.output.send(bytes, atMs);
+      else this.output.send(bytes);
     } catch (_) {
       /* device unplugged mid-note — ignore */
     }
+  }
+
+  _nowMs() {
+    return typeof performance !== 'undefined' && performance.now ? performance.now() : 0;
   }
 
   _clipChannel(ch) {
@@ -129,17 +134,21 @@ export class MidiOut {
     const ch = (this._clipChannel(route.channel) - 1) & 0x0f;
     const n = Math.max(0, Math.min(127, Math.round(route.drumNote != null ? route.drumNote : midi)));
     const v = Math.max(1, Math.min(127, Math.round(velocity)));
+    const t0 = this._nowMs();
+    const t1 = t0 + Math.max(10, duration * 1000);
     this._ensureProgram(route.channel, route.program);
-    this._send([0x90 | ch, n, v]);
-    setTimeout(() => this._send([0x80 | ch, n, 0]), Math.max(10, duration * 1000));
+    this._send([0x90 | ch, n, v], t0);
+    this._send([0x80 | ch, n, 0], t1);
   }
 
   // A collision hit → a percussion note on the drum channel.
   collision({ velocity = 118, duration = 0.1 } = {}) {
     const ch = (this.drumChannel - 1) & 0x0f;
     const v = Math.max(1, Math.min(127, Math.round(velocity)));
-    this._send([0x90 | ch, this.drumNote, v]);
-    setTimeout(() => this._send([0x80 | ch, this.drumNote, 0]), Math.max(10, duration * 1000));
+    const t0 = this._nowMs();
+    const t1 = t0 + Math.max(10, duration * 1000);
+    this._send([0x90 | ch, this.drumNote, v], t0);
+    this._send([0x80 | ch, this.drumNote, 0], t1);
   }
 
   // Silence everything (panic) — sent on both channels.
