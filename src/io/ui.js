@@ -891,13 +891,40 @@ export class UIPanel {
     this.refresh();
   }
 
-  _saveJSON() {
-    const blob = new Blob([JSON.stringify(this.collectParams(), null, 2)], { type: 'application/json' });
+  async _saveJSON() {
+    const text = JSON.stringify(this.collectParams(), null, 2);
+    const blob = new Blob([text], { type: 'application/json' });
+
+    try {
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'cube-carillon-session.json',
+          types: [{ description: 'JSON Session', accept: { 'application/json': ['.json'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+        return;
+      }
+    } catch (err) {
+      // If the user cancels the native picker, do nothing. Any other error falls
+      // back to the blob download path below.
+      if (err && err.name === 'AbortError') return;
+      console.warn('Native save failed, falling back to download.', err);
+    }
+
+    const href = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = 'cube-carillon-session.json';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => {
+      URL.revokeObjectURL(href);
+      a.remove();
+    }, 1000);
   }
 
   _toggleParams() {
