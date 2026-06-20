@@ -141,6 +141,35 @@ const statusEl = document.getElementById('status');
 const setStatus = (t) => {
   if (statusEl) statusEl.textContent = t;
 };
+
+// Runtime diagnostics for live demos: capture uncaught errors/rejections and
+// keep the app loop alive after transient exceptions so one bad event doesn't
+// blank the instrument mid-performance.
+const CRASH_KEY = 'cubecarillon:lastRuntimeError';
+function rememberRuntimeError(source, err) {
+  const msg = String(err && (err.stack || err.message) ? err.stack || err.message : err);
+  const rec = { at: Date.now(), source, msg };
+  try {
+    localStorage.setItem(CRASH_KEY, JSON.stringify(rec));
+  } catch {
+    // ignore storage failures (private mode, quota, etc.)
+  }
+  console.error(`[runtime:${source}]`, err);
+  setStatus(`runtime error (${source})`);
+}
+
+try {
+  const prev = JSON.parse(localStorage.getItem(CRASH_KEY) || 'null');
+  if (prev && Date.now() - prev.at < 6 * 60 * 60 * 1000) {
+    console.warn('Recovered from previous runtime error:', prev);
+    setStatus('recovered after runtime error');
+  }
+} catch {
+  // ignore parse/storage errors
+}
+
+window.addEventListener('error', (ev) => rememberRuntimeError('window.error', ev.error || ev.message));
+window.addEventListener('unhandledrejection', (ev) => rememberRuntimeError('promise', ev.reason));
 // sound routing flags (toggled from the panel)
 const flags = { builtInSound: true, noteSound: true, collisionSound: true };
 const controls = new Controls({
@@ -278,47 +307,51 @@ function handleEnter(ev) {
 }
 
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
+  try {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
 
-  engine.setRotation(view.rotationArray());
+    engine.setRotation(view.rotationArray());
 
-  // The audio clock drives all note ONSETS, so timing is sample-accurate and
-  // free of animation-frame jitter; the visuals still ride this rAF loop.
-  const audioNow = audio.now();
+    // The audio clock drives all note ONSETS, so timing is sample-accurate and
+    // free of animation-frame jitter; the visuals still ride this rAF loop.
+    const audioNow = audio.now();
 
-  // ONE dynamics drives both "modes": every head GLIDES continuously (geodesic
-  // on the surface, so subtly-rotated trajectories keep reading the score). Step
-  // mode is purely a VIEW choice — the head is RENDERED snapped to cell centres
-  // ("don't show the ball between the cells"), but it advances and fires notes
-  // exactly like continuous. Each emitted event carries `when` — the exact
-  // audio-clock instant it sounds.
-  view.setSnap(engine.stepMode);
-  for (const ev of engine.update(dt, audioNow)) handleEnter(ev);
+    // ONE dynamics drives both "modes": every head GLIDES continuously (geodesic
+    // on the surface, so subtly-rotated trajectories keep reading the score). Step
+    // mode is purely a VIEW choice — the head is RENDERED snapped to cell centres
+    // ("don't show the ball between the cells"), but it advances and fires notes
+    // exactly like continuous. Each emitted event carries `when` — the exact
+    // audio-clock instant it sounds.
+    view.setSnap(engine.stepMode);
+    for (const ev of engine.update(dt, audioNow)) handleEnter(ev);
 
-  // Head intersections -> ONE event that draws on the two heads. The global
-  // collision SOURCE (sequencer.collisionSource) decides the sound: a fixed
-  // chosen voice, the armed note under the meeting, or both heads' instruments
-  // launched together (a dyad from the geometry). Scheduled on the audio clock,
-  // aligned to the heads' own notes so there is no flam.
-  for (const ev of engine.collisions(audioNow)) {
-    view.flash(ev.a);
-    view.flash(ev.b);
-    if (!flags.collisionSound) continue;
-    const res = sequencer.voicesForCollision(ev);
-    if (res.fixed) {
-      if (flags.builtInSound) audio.playCollision({}, ev.when);
-      if (midi.enabled) midi.collision({});
-    } else {
-      for (const voice of res.voices) {
-        if (flags.builtInSound) audio.play(voice, ev.when);
-        if (midi.enabled) midi.note(voice);
+    // Head intersections -> ONE event that draws on the two heads. The global
+    // collision SOURCE (sequencer.collisionSource) decides the sound: a fixed
+    // chosen voice, the armed note under the meeting, or both heads' instruments
+    // launched together (a dyad from the geometry). Scheduled on the audio clock,
+    // aligned to the heads' own notes so there is no flam.
+    for (const ev of engine.collisions(audioNow)) {
+      view.flash(ev.a);
+      view.flash(ev.b);
+      if (!flags.collisionSound) continue;
+      const res = sequencer.voicesForCollision(ev);
+      if (res.fixed) {
+        if (flags.builtInSound) audio.playCollision({}, ev.when);
+        if (midi.enabled) midi.collision({});
+      } else {
+        for (const voice of res.voices) {
+          if (flags.builtInSound) audio.play(voice, ev.when);
+          if (midi.enabled) midi.note(voice);
+        }
       }
     }
-  }
 
-  view.sync(now);
-  view.render();
+    view.sync(now);
+    view.render();
+  } catch (err) {
+    rememberRuntimeError('frame', err);
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
