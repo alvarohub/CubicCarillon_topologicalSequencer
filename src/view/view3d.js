@@ -1583,9 +1583,9 @@ export class View3D {
           const cy = alongX ? qc : centreMot(kk);
           this._placeOnFace(led, b.faceId, cx, cy, 0.009);
           led.material.emissiveIntensity = glow * (Math.log1p(9 * w) / Math.log1p(9));
-          led.material.opacity = b.muted ? 0.15 : 0.95;
+          led.material.opacity = b.running === false ? 0.15 : 0.95;
         }
-        if (b.muted) {
+        if (b.running === false) {
           const kk = Math.max(0, Math.min(nMot - 1, Math.round(s)));
           this._placeOnFace(ring, b.faceId, alongX ? centreMot(kk) : qc, alongX ? qc : centreMot(kk), 0.011);
         } else ring.visible = false;
@@ -1611,7 +1611,7 @@ export class View3D {
         const centreV = (kk) => -halfV + (kk + 0.5) * cv;
         const fr = this.headFrames[i];
         this._placeOnFace(fr, b.faceId, centreU(idxU(b.x)), centreV(idxV(b.y)), 0.014);
-        fr.material.opacity = b.muted ? 0.2 : 0.7 + k * 0.3;
+        fr.material.opacity = b.running === false ? 0.2 : 0.7 + k * 0.3;
       } else if (this.headStyle === 'inner') {
         // the firefly: a point light (+ optional tiny core) riding headDepth
         // from the surface — inside (clamped so it can't poke out while folding
@@ -1635,7 +1635,11 @@ export class View3D {
         const core = this.headInners[i];
         // the NOTE lights the firefly: idle = dim + desaturated; over an armed
         // cell = full instrument colour at fireflyBright, for the whole crossing
-        const over = this._facetSeq && this._facetSeq.armed.has(`${b.faceId}:${b.cellI}:${b.cellJ}`) && !b.muted;
+        const over =
+          this._facetSeq &&
+          this._facetSeq.armed.has(`${b.faceId}:${b.cellI}:${b.cellJ}`) &&
+          b.running !== false &&
+          !b.muted;
         const col = this._fireflyCol.copy(this.headBaseCols[i]);
         if (!over) col.lerp(this._white, this.fireflyDesat);
         core.visible = this.headCoreSize > 0.02;
@@ -1643,14 +1647,14 @@ export class View3D {
           core.position.set(px, py, pz);
           core.scale.setScalar(this.headCoreSize);
           core.material.emissive.copy(col);
-          core.material.emissiveIntensity = b.muted ? 0.3 : (over ? this._headGlow + 1.4 : 0.5) + k * 2.2;
-          core.material.opacity = b.muted ? 0.25 : 1;
+          core.material.emissiveIntensity = b.running === false ? 0.3 : (over ? this._headGlow + 1.4 : 0.5) + k * 2.2;
+          core.material.opacity = b.running === false ? 0.25 : 1;
         }
         const L = this.headLights[i];
         L.position.set(px, py, pz);
         L.visible = true;
         L.color.copy(col);
-        L.intensity = b.muted ? 0.05 : (over ? this.fireflyBright : this.fireflyDim) + k * 4.0;
+        L.intensity = b.running === false ? 0.05 : (over ? this.fireflyBright : this.fireflyDim) + k * 4.0;
         // the invisible twin, mirrored on the OTHER side of the surface: lights
         // the facet sides the main firefly can't reach (fake diffusion)
         const ML = this.headLightsMirror[i];
@@ -1673,8 +1677,8 @@ export class View3D {
           const mesh = pool[k2];
           if (k2 < pieces.length) {
             this._placeRect(mesh, pieces[k2], this._lift);
-            mesh.material.emissiveIntensity = b.muted ? 0.6 : glow;
-            mesh.material.opacity = b.muted ? 0.14 : 0.5;
+            mesh.material.emissiveIntensity = b.running === false ? 0.6 : glow;
+            mesh.material.opacity = b.running === false ? 0.14 : 0.5;
           } else {
             mesh.visible = false;
           }

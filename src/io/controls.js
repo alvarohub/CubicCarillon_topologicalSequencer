@@ -178,6 +178,7 @@ export class Controls {
       balls.find((b) => usable(b) && b.kind === wantKind && (b.track ?? 0) === wantTrack) ||
       balls.find((b) => usable(b) && b.kind === wantKind);
     if (!ref) return; // that band has no audible head to voice it
+    if (ref.muted) return; // track mute suppresses preview too
     const cell = seq.cellData ? seq.cellData(seq.key(faceId, i, j)) : null;
     const engraved = cell && cell.pitch != null ? cell.pitch : null; // absolute note wins
     const midi = engraved != null ? engraved : seq.bandFor(ref).midiForLevel(Math.max(0, level));
@@ -192,14 +193,18 @@ export class Controls {
     if (this.midi?.enabled) this.midi.note(note);
   }
 
-  // Pause/unpause one head. ONLY the head stops: its armed cells keep sounding
-  // for the heads of the perpendicular band (the score is shared territory).
-  // The view shows the paused head ghost-transparent with a coloured contour.
-  toggleHeadPause(index) {
+  // Stop/start one head. This changes MOTION only; mute remains a separate
+  // note-output control.
+  toggleHeadRun(index) {
     const ball = this.engine.balls[index];
-    ball.muted = !ball.muted;
-    this.statusFn(`head ${index} ${ball.muted ? 'paused' : 'running'}`);
+    ball.running = ball.running === false ? true : false;
+    this.statusFn(`head ${index} ${ball.running === false ? 'stopped' : 'running'}`);
     this._notify();
+  }
+
+  // Back-compat alias for older callers/UI wiring.
+  toggleHeadPause(index) {
+    this.toggleHeadRun(index);
   }
 
   _openInstrumentMenu(headIndex, x, y) {

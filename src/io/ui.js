@@ -93,10 +93,11 @@ export class UIPanel {
     const s = this._section('Transport');
     const row = el('div', 'ui-row');
 
-    this.playBtn = button('Pause', () => {
+    this.playBtn = button('◯', () => {
       this.engine.paused = !this.engine.paused;
       this.refresh();
     });
+    this.playBtn.title = 'global run/stop';
     this.modeBtn = button('Step', () => {
       this.engine.stepMode = !this.engine.stepMode;
       this.refresh();
@@ -458,12 +459,27 @@ export class UIPanel {
       });
       top.appendChild(countSel);
 
-      const runBtn = el('button', 'ui-btn', 'Stop group');
+      const runBtn = el('button', 'ui-btn ui-mini', '◯');
       runBtn.addEventListener('click', () => {
         this.engine.toggleGroupPause(axis);
         this.refresh();
       });
+      runBtn.title = `${axis} group run/stop`;
       top.appendChild(runBtn);
+
+      const muteBtn = el('button', 'ui-btn', 'Mute all');
+      muteBtn.addEventListener('click', () => {
+        for (const r of this.trackRows) if (r.axis === axis && r.ball.active !== false) r.ball.muted = true;
+        this.refresh();
+      });
+      muteBtn.title = `${axis} group mute note output`;
+      const openBtn = el('button', 'ui-btn', 'Open all');
+      openBtn.addEventListener('click', () => {
+        for (const r of this.trackRows) if (r.axis === axis && r.ball.active !== false) r.ball.muted = false;
+        this.refresh();
+      });
+      openBtn.title = `${axis} group unmute note output`;
+      top.append(muteBtn, openBtn);
 
       const shiftL = el('button', 'ui-btn ui-mini', '◀');
       shiftL.title = `shift ${axis} group one cell back`;
@@ -516,7 +532,7 @@ export class UIPanel {
       const list = el('div', 'ui-track-list');
       wrap.appendChild(list);
       s.appendChild(wrap);
-      this.groupUI[axis] = { wrap, list, countSel, runBtn, scaleSel, keySel, revBtn };
+      this.groupUI[axis] = { wrap, list, countSel, runBtn, muteBtn, openBtn, scaleSel, keySel, revBtn };
     };
 
     ['X', 'Y', 'Z'].forEach(makeGroup);
@@ -528,9 +544,16 @@ export class UIPanel {
       row.appendChild(dot);
       row.appendChild(el('span', 'ui-kind', `${ball.kind}${ball.track + 1}`));
 
+      const runTrackBtn = el('button', 'ui-btn ui-mini', '◯');
+      runTrackBtn.title = 'track run/stop';
+      runTrackBtn.addEventListener('click', () => {
+        this.controls.toggleHeadRun(i);
+        this.refresh();
+      });
       const mBtn = el('button', 'ui-btn ui-mini', 'M');
+      mBtn.title = 'track note mute';
       mBtn.addEventListener('click', () => {
-        this.controls.toggleHeadPause(i);
+        ball.muted = !ball.muted;
         this.refresh();
       });
       const sBtn = el('button', 'ui-btn ui-mini', 'S');
@@ -539,7 +562,7 @@ export class UIPanel {
         this.engine.refreshSolo();
         this.refresh();
       });
-      row.append(mBtn, sBtn);
+      row.append(runTrackBtn, mBtn, sBtn);
 
       const sel = el('select', 'ui-select ui-track-ins');
       // "(silent)" = an instrumentless carrier head: it makes no note of its own
@@ -573,17 +596,19 @@ export class UIPanel {
           const cur = this._trackNote(ball);
           if (cur != null) ball.band.root += +keySel.value - cur; // transpose to the picked note
           this._syncGroupKeyState(ball.kind);
-          const note = {
-            midi: +keySel.value,
-            instrument: ball.instrument,
-            velocity: 96,
-            duration: 0.22,
-          };
-          if (this.flags.builtInSound !== false) {
-            this.audio.resume();
-            this.audio.play(note, this.audio.now());
+          if (!ball.muted) {
+            const note = {
+              midi: +keySel.value,
+              instrument: ball.instrument,
+              velocity: 96,
+              duration: 0.22,
+            };
+            if (this.flags.builtInSound !== false) {
+              this.audio.resume();
+              this.audio.play(note, this.audio.now());
+            }
+            if (this.midi.enabled) this.midi.note(note);
           }
-          if (this.midi.enabled) this.midi.note(note);
           this.refresh();
         }
       });
@@ -623,6 +648,7 @@ export class UIPanel {
         index: i,
         ball,
         row,
+        runBtn: runTrackBtn,
         sel,
         durSel,
         keySel,
@@ -774,6 +800,10 @@ export class UIPanel {
         },
       },
       transport: { bpm: e.bpm, stepMode: e.stepMode, railed: e.railed, gravity: e.gravityStrength },
+      runtime: {
+        paused: !!e.paused,
+        groupPaused: { ...e.groupPaused },
+      },
       sound: {
         builtInSound: this.flags.builtInSound,
         noteSound: this.flags.noteSound,
@@ -805,11 +835,22 @@ export class UIPanel {
       tracks: e.balls.map((b) => ({
         kind: b.kind,
         track: b.track,
+        active: b.active !== false,
+        running: b.running !== false,
         color: b.color,
         instrument: b.instrument,
         rate: b.rate,
         muted: !!b.muted,
         solo: !!b.solo,
+        shift: b.shift || 0,
+        faceId: b.faceId,
+        x: b.x,
+        y: b.y,
+        vx: b.vx,
+        vy: b.vy,
+        cellFace: b.cellFace,
+        cellI: b.cellI,
+        cellJ: b.cellJ,
         scale: b.band ? b.band.scale : undefined,
         root: b.band ? b.band.root : undefined,
       })),
@@ -830,6 +871,12 @@ export class UIPanel {
     if (t.stepMode != null) this.engine.stepMode = t.stepMode;
     if (t.railed != null) this.engine.railed = t.railed;
     if (t.gravity != null) this.engine.gravityStrength = t.gravity;
+    const rt = p.runtime || {};
+    if (rt.paused != null) this.engine.paused = rt.paused;
+    if (rt.groupPaused && typeof rt.groupPaused === 'object') {
+      for (const axis of ['X', 'Y', 'Z'])
+        if (rt.groupPaused[axis] != null) this.engine.groupPaused[axis] = !!rt.groupPaused[axis];
+    }
     const sn = p.sound || {};
     if (sn.builtInSound != null) this.flags.builtInSound = sn.builtInSound;
     if (sn.noteSound != null) this.flags.noteSound = sn.noteSound;
@@ -837,6 +884,15 @@ export class UIPanel {
     if (sn.collisionIndex != null) this.audio.collisionSound = sn.collisionIndex;
     if (sn.collisionSource != null) this.sequencer.collisionSource = sn.collisionSource;
     if (sn.midiChannel != null) this.midi.channel = sn.midiChannel;
+    const hasRuntimeTrackState =
+      Array.isArray(p.tracks) &&
+      p.tracks.some(
+        (tp) => tp && (tp.faceId != null || tp.x != null || tp.y != null || tp.vx != null || tp.vy != null),
+      );
+    if (!hasRuntimeTrackState) {
+      this.engine.resetHeads();
+      this.engine.groupPaused = { X: false, Y: false, Z: false };
+    }
     const vw = p.view || {};
     if (vw.surfaceStyle != null) this.view.setSurfaceStyle(vw.surfaceStyle);
     if (vw.facetGap != null) this.view.setFacetGap(vw.facetGap);
@@ -875,10 +931,21 @@ export class UIPanel {
     (p.tracks || []).forEach((tp, i) => {
       const b = this.engine.balls[i];
       if (!b) return;
+      if (tp.active != null) b.active = tp.active;
+      if (tp.running != null) b.running = tp.running;
       if (tp.instrument != null) b.instrument = tp.instrument;
       if (tp.rate != null) b.rate = tp.rate;
       if (tp.muted != null) b.muted = tp.muted;
       if (tp.solo != null) b.solo = tp.solo;
+      if (tp.shift != null) b.shift = tp.shift;
+      if (tp.faceId != null) b.faceId = tp.faceId;
+      if (tp.x != null) b.x = tp.x;
+      if (tp.y != null) b.y = tp.y;
+      if (tp.vx != null) b.vx = tp.vx;
+      if (tp.vy != null) b.vy = tp.vy;
+      if (tp.cellFace != null) b.cellFace = tp.cellFace;
+      if (tp.cellI != null) b.cellI = tp.cellI;
+      if (tp.cellJ != null) b.cellJ = tp.cellJ;
       if (b.band && tp.scale != null) b.band.scale = tp.scale;
       if (b.band && tp.root != null) b.band.root = tp.root;
     });
@@ -943,7 +1010,8 @@ export class UIPanel {
 
   // ---- state mirror -----------------------------------------------------------
   refresh() {
-    this.playBtn.textContent = this.engine.paused ? 'Play' : 'Pause';
+    this.playBtn.textContent = this.engine.paused ? '◯' : '◉';
+    this.playBtn.classList.toggle('on', !this.engine.paused);
     this.modeBtn.textContent = this.engine.stepMode ? 'Continuous' : 'Step';
     this.modeBtn.classList.toggle('on', this.engine.stepMode);
     this.railBtn.textContent = this.engine.railed ? 'Derail' : 'Rail';
@@ -985,8 +1053,8 @@ export class UIPanel {
         this.groupUI[axis].keySel.value = String(((rootBall.band.root % 12) + 12) % 12);
       }
       const paused = !!this.engine.groupPaused[axis];
-      this.groupUI[axis].runBtn.textContent = paused ? 'Start group' : 'Stop group';
-      this.groupUI[axis].runBtn.classList.toggle('on', paused);
+      this.groupUI[axis].runBtn.textContent = paused ? '◯' : '◉';
+      this.groupUI[axis].runBtn.classList.toggle('on', !paused);
       const revOn = rows.some((r) => r.ball.active !== false && this._isReversed(r.ball));
       if (this.groupUI[axis].revBtn) {
         this.groupUI[axis].revBtn.classList.toggle('on', revOn);
@@ -1004,6 +1072,11 @@ export class UIPanel {
       // track-count dial, a loaded session, or a live re-slice): an inactive
       // track has no head on stage, so its row hides too.
       r.row.style.display = ball.active === false ? 'none' : '';
+      if (r.runBtn) {
+        const running = ball.running !== false;
+        r.runBtn.textContent = running ? '◉' : '◯';
+        r.runBtn.classList.toggle('on', running);
+      }
       r.sel.value = ball.instrument;
       r.durSel.value = String(ball.rate);
       r.mBtn.classList.toggle('on', !!ball.muted);

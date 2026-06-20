@@ -149,6 +149,7 @@ export class Sequencer {
   // sounds an enter note; it still collides.)
   noteForEnter(event) {
     const { ball, faceId, i, j } = event;
+    if (ball.muted) return null; // note-output mute only; motion continues
     if (ball.instrument == null || ball.instrument < 0) return null; // silent carrier
     const k = this.key(faceId, i, j);
     const cell = this.cellData(k);
@@ -185,6 +186,7 @@ export class Sequencer {
     const velocity = Math.max(1, Math.min(127, Math.round((vel01 ?? this.collisionVelocity) * 127)));
     const out = [];
     for (const h of [a, b]) {
+      if (h.muted) continue; // muted head still collides, but contributes no note
       if (h.instrument == null || h.instrument < 0) continue; // silent carrier
       out.push({ midi: this.positionalPitch(h), velocity, duration: 0.3, instrument: h.instrument });
     }

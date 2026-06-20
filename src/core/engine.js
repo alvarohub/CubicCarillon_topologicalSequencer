@@ -69,9 +69,10 @@ export class Engine {
     this.soloActive = this.balls.some((b) => b.active !== false && b.solo);
   }
 
-  // a head is silent if paused, or if a solo is active elsewhere
+  // a head is motion-silent if globally stopped, group-stopped, track-stopped,
+  // or soloed-out. Mute is handled at the note-routing layer, not here.
   _silent(b) {
-    return !!b.muted || !!this.groupPaused[b.kind] || (this.soloActive && !b.solo);
+    return b.running === false || !!this.groupPaused[b.kind] || (this.soloActive && !b.solo);
   }
 
   toggleGroupPause(kind) {

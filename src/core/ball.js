@@ -30,8 +30,9 @@ export class Ball {
     // alignment, and which coordinate gives the pitch.
     this.kind = kind;
     this.instrument = instrument; // index into the instrument list (the sound)
-    this.muted = false; // a paused head freezes; its notes stay live for other heads
-    this.solo = false; // when ANY head is soloed, only soloed heads run (Logic's S)
+    this.running = true; // motion state: stopped heads stay visible but do not advance
+    this.muted = false; // note-output mute: the head still moves, but sends no notes
+    this.solo = false; // legacy solo state; when ANY head is soloed, only soloed heads run
     this.rate = 4; // per-track step size as cells-per-beat (4 = 1/16 default; ×½, ×1 …)
     this._stepAcc = 0; // fractional-beat accumulator for step mode (rate ≠ 1)
     this._stepTime = 0; // elapsed-time accumulator for step mode (seconds; one cell per period)

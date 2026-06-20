@@ -121,10 +121,12 @@ for (let t = 0; t < Z_TRACKS.length; t++) {
 // ready to be woken track by track.
 for (const b of balls) {
   b.active = (b.track ?? 0) < divisions[b.kind];
+  b.running = true;
   b.muted = true;
 }
 
 const engine = new Engine(surface, balls, divisions);
+engine.paused = true;
 engine.collisionRadius = surface.unit * 0.55; // two heads "meet" within ~one cell
 engine.stepMode = true; // START on the clocked grid (no gravity by default);
 // heads spawn already lined up as a bar, so the first impression is a clean,
