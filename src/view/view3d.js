@@ -41,6 +41,11 @@ export class View3D {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
+    // On touchscreens the browser claims one- and two-finger gestures for
+    // scroll/zoom unless we opt out here. Without this the cube starts to
+    // rotate, then the browser fires pointercancel and the drag dies after a
+    // few pixels — the exact symptom reported on phones.
+    this.renderer.domElement.style.touchAction = 'none';
 
     this.cubeGroup = new THREE.Group();
     // Start at a friendly 3/4 angle with the +X/+Z corner toward the viewer, so
@@ -1271,6 +1276,13 @@ export class View3D {
       downButton = 0,
       velTimer = 0;
     el.addEventListener('pointerdown', (e) => {
+      // Keep receiving moves even if the finger drifts off the canvas
+      // (or over a sibling UI element) mid-gesture.
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* some browsers refuse capture on certain pointer types; harmless */
+      }
       this._pts.set(e.pointerId, [e.clientX, e.clientY]);
       if (this._pts.size === 2) {
         // second finger lands: this is a PINCH, not a drag/long-press
@@ -1319,6 +1331,20 @@ export class View3D {
         if (performance.now() - lastMove > 80) this._spinX = this._spinY = 0;
       }
       this._dragging = false;
+    });
+    // Treat a pointercancel (browser stole the gesture, finger lifted off the
+    // touch sensor edge, etc.) the same as a clean release so we don't get
+    // stuck mid-drag with a phantom finger.
+    window.addEventListener('pointercancel', (e) => {
+      this._pts.delete(e.pointerId);
+      this._pinchDist = 0;
+      clearTimeout(velTimer);
+      if (this._velCell) {
+        this.velocityHandler?.(this._velCell, 0, 'end');
+        this._velCell = null;
+      }
+      this._dragging = false;
+      this._spinX = this._spinY = 0;
     });
     window.addEventListener('pointermove', (e) => {
       if (this._pts.has(e.pointerId)) this._pts.set(e.pointerId, [e.clientX, e.clientY]);
