@@ -106,7 +106,13 @@ export class UIPanel {
       this.engine.railed = !this.engine.railed;
       this.refresh();
     });
-    row.append(this.playBtn, this.modeBtn, this.railBtn);
+    this.gravityBtn = button('Gravity', async () => {
+      this.engine.gravityStrength = this.engine.gravityStrength > 0 ? 0 : 2.5;
+      // On first enable, request device-orientation permission (iOS needs a user gesture).
+      await this.controls._requestOrientation();
+      this.refresh();
+    });
+    row.append(this.playBtn, this.modeBtn, this.railBtn, this.gravityBtn);
 
     row.appendChild(el('label', 'ui-label slim', 'BPM'));
     this.bpmInput = el('input', 'ui-num');
@@ -1015,6 +1021,7 @@ export class UIPanel {
     this.modeBtn.textContent = this.engine.stepMode ? 'Continuous' : 'Step';
     this.modeBtn.classList.toggle('on', this.engine.stepMode);
     this.railBtn.textContent = this.engine.railed ? 'Derail' : 'Rail';
+    this.gravityBtn.classList.toggle('on', this.engine.gravityStrength > 0);
     this.bpmInput.value = this.engine.bpm;
     this.collSel.value = this.audio.collisionSound;
     if (this.builtInChk) this.builtInChk.checked = this.flags.builtInSound !== false;

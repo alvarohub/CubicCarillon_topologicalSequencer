@@ -7,7 +7,9 @@
 //                  · a align bar · + / - BPM · [ ] cube opacity
 //   - pointer tap: click a HEAD -> pause/unpause its track · right-click a HEAD
 //                  -> instrument menu · click a CELL -> toggle score
-//   - phone:       deviceorientation -> cube orientation + gravity ("tilt to roll")
+//   - phone:       deviceorientation -> gravity vector ("tilt to roll").
+//                  The cube does NOT rotate; only the acceleration direction
+//                  felt by the heads changes with the physical device tilt.
 //   - start button: unlocks audio + requests motion permission (iOS)
 //
 // On a real device this is exactly where an accelerometer / touch facets would
@@ -48,6 +50,7 @@ export class Controls {
       } else if (e.key === 'g' || e.key === 'G') {
         this.engine.gravityStrength = this.engine.gravityStrength > 0 ? 0 : 2.5;
         this.statusFn(this.engine.gravityStrength > 0 ? 'gravity ON' : 'gravity OFF');
+        this._requestOrientation(); // no-op if already wired; requests iOS permission if needed
       } else if (e.key === 'm' || e.key === 'M') {
         this.engine.stepMode = !this.engine.stepMode;
         this.statusFn(this.engine.stepMode ? `step mode · ${this.engine.bpm} BPM` : 'continuous mode');
@@ -297,11 +300,39 @@ export class Controls {
   }
 
   async _requestOrientation() {
-    // The accelerometer / device-orientation drive of the cube is DISABLED for
-    // now: on a phone or iPad it made the cube spin uncontrollably and the app
-    // unusable. The sensor will come back later in a subtler role (e.g. nudging
-    // the tempo), so the start-button hook is kept but it no longer wires tilt
-    // to the cube's rotation or to gravity. Drag still rotates the cube.
-    return;
+    // Idempotent: only wire the listener once.
+    if (this._orientationWired) return;
+    this._orientationWired = true;
+
+    // iOS 13+ requires an explicit permission request from a user-gesture handler.
+    if (
+      typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function'
+    ) {
+      try {
+        const result = await DeviceOrientationEvent.requestPermission();
+        if (result !== 'granted') { this._orientationWired = false; return; }
+      } catch (_) { this._orientationWired = false; return; }
+    }
+
+    if (typeof DeviceOrientationEvent === 'undefined') return;
+
+    // Update the engine's gravity direction from the physical tilt of the device.
+    // The cube does NOT rotate — only the acceleration vector fed to the ball
+    // physics is reoriented. Formula: project physical "down" onto the screen plane.
+    //   beta  ≈ 90 when phone is held upright in portrait; 0 when lying face-up.
+    //   gamma = left/right roll  (-90 … +90, positive = right side down).
+    // When beta=90, gamma=0 this gives (0, -1, 0) = the default world "down".
+    window.addEventListener(
+      'deviceorientation',
+      (e) => {
+        if (e.beta == null) return; // sensor not available on this device
+        const DEG = Math.PI / 180;
+        const b = e.beta * DEG;
+        const g = (e.gamma || 0) * DEG;
+        this.engine.gravityWorld = [Math.sin(g), -Math.cos(g) * Math.sin(b), 0];
+      },
+      { passive: true },
+    );
   }
 }
