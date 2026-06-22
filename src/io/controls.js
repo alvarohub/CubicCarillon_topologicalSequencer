@@ -309,10 +309,11 @@ export class Controls {
       typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function'
     ) {
+      let granted = false;
       try {
-        const result = await DeviceOrientationEvent.requestPermission();
-        if (result !== 'granted') { this._orientationWired = false; return; }
-      } catch (_) { this._orientationWired = false; return; }
+        granted = (await DeviceOrientationEvent.requestPermission()) === 'granted';
+      } catch (_) { /* permission API threw — treat as denied */ }
+      if (!granted) { this._orientationWired = false; return; }
     }
 
     if (typeof DeviceOrientationEvent === 'undefined') return;
