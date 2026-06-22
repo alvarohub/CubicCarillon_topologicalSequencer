@@ -1254,7 +1254,7 @@ export class View3D {
     this._spinX = 0; // rad/s, applied + damped in sync()
     this._spinY = 0;
     this.velocityHandler = null; // (cellRes, delta01, phase) set by controls
-    this._velCell = null; // cell being velocity-shaped (long-press active)
+    this._velCell = null; // long-press target: a cell res (velocity gesture) or head res (instrument menu)
     this._pts = new Map(); // active pointers, for the pinch-zoom gesture
     this._pinchDist = 0;
     // mouse wheel zoom (trackpad pinch arrives as a wheel event too)
@@ -1301,12 +1301,16 @@ export class View3D {
       moved = 0;
       this._velCell = null;
       clearTimeout(velTimer);
-      if (e.button === 0 && this.velocityHandler) {
+      if (e.button === 0 && (this.velocityHandler || this.pickHandler)) {
         velTimer = setTimeout(() => {
           if (!this._dragging || moved >= 6) return;
           const res = this.pick(downX, downY);
-          if (res && res.type === 'cell' && this.velocityHandler(res, 0, 'start') !== false) {
+          if (res && res.type === 'cell' && this.velocityHandler?.(res, 0, 'start') !== false) {
             this._velCell = res;
+          } else if (res && res.type === 'head' && this.pickHandler) {
+            // touch long-press on a head: open instrument menu (no right-click on mobile)
+            this._velCell = res; // consume the gesture so pointerup doesn't re-fire a tap
+            this.pickHandler(res, { button: 2, clientX: downX, clientY: downY });
           }
         }, 300);
       }
@@ -1316,7 +1320,7 @@ export class View3D {
       this._pinchDist = 0;
       clearTimeout(velTimer);
       if (this._velCell) {
-        this.velocityHandler?.(this._velCell, 0, 'end');
+        if (this._velCell.type === 'cell') this.velocityHandler?.(this._velCell, 0, 'end');
         this._velCell = null;
         this._dragging = false;
         return; // the long-press gesture swallows the tap
@@ -1340,11 +1344,14 @@ export class View3D {
       this._pinchDist = 0;
       clearTimeout(velTimer);
       if (this._velCell) {
-        this.velocityHandler?.(this._velCell, 0, 'end');
+        if (this._velCell.type === 'cell') this.velocityHandler?.(this._velCell, 0, 'end');
         this._velCell = null;
       }
+      // Preserve spin inertia on a fast flick, just like pointerup does —
+      // only zero out if the finger had already stopped moving before the
+      // browser cancelled the gesture.
+      if (performance.now() - lastMove > 80) this._spinX = this._spinY = 0;
       this._dragging = false;
-      this._spinX = this._spinY = 0;
     });
     window.addEventListener('pointermove', (e) => {
       if (this._pts.has(e.pointerId)) this._pts.set(e.pointerId, [e.clientX, e.clientY]);
