@@ -1343,8 +1343,11 @@ export class View3D {
         this.velocityHandler?.(this._velCell, 0, 'end');
         this._velCell = null;
       }
+      // Preserve spin inertia on a fast flick, just like pointerup does —
+      // only zero out if the finger had already stopped moving before the
+      // browser cancelled the gesture.
+      if (performance.now() - lastMove > 80) this._spinX = this._spinY = 0;
       this._dragging = false;
-      this._spinX = this._spinY = 0;
     });
     window.addEventListener('pointermove', (e) => {
       if (this._pts.has(e.pointerId)) this._pts.set(e.pointerId, [e.clientX, e.clientY]);
