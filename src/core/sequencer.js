@@ -8,10 +8,10 @@
 //   - The SCORE is a set of armed cells, keyed by "faceId:i:j".
 //   - A head SOUNDS when it ENTERS an armed cell (engine emits 'enter' events).
 //   - PITCH is read from the head's PERPENDICULAR cell index — its "level in the
-//     stack". A horizontal ('H') head's pitch comes from its row (y); a
-//     transversal ('V') head's from its column (x). So the SAME armed cell sounds
-//     a different pitch depending on which band reads it — a score rotated 90°.
-//   - Each band ('H' / 'V') has its own scale + key (see scales.js Band).
+//     stack". A head moving along local x reads from j; one moving along local y
+//     reads from i. So the SAME armed cell can sound different depending on which
+//     axis band reads it.
+//   - Each axis band (X/Y/Z) has its own scale + tonic (see scales.js Band).
 //   - INSTRUMENT (the timbre) is carried by the head, not the cell.
 //
 // Pure module: returns note descriptors; it does not make sound itself.
@@ -21,7 +21,7 @@ import { Band } from './scales.js';
 export class Sequencer {
   constructor({ cells = 8, bandX = null, bandY = null, bandZ = null } = {}) {
     this.cells = cells;
-    // two bands with independent scale + key
+    // three axis bands with independent scale + tonic
     this.bandX = bandX || new Band({ name: 'x-axis', scale: 'pentatonic', root: 60 }); // C
     this.bandY = bandY || new Band({ name: 'y-axis', scale: 'pentatonic', root: 57 }); // A
     this.bandZ = bandZ || new Band({ name: 'vertical-z', scale: 'pentatonic', root: 64 }); // E
@@ -31,8 +31,8 @@ export class Sequencer {
     this.armed = new Map();
     this.defaultVelocity = 0.7;
     // cells silenced because they sit on a MUTED track's slice. Muting a
-    // horizontal track also silences those cells for vertical heads (and vice
-    // versa) — the whole slice is off, regardless of reading direction.
+    // track slice muting is kept for old sessions; current track mute is handled
+    // per head, so this set usually remains empty.
     this.mutedCells = new Set();
 
     // ---- collision behaviour (a head-on-head meeting is its own event) -------

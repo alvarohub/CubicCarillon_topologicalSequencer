@@ -10,13 +10,13 @@
       "tracks": 4,
       "bpm": null,
       "scale": "pentatonic",
-      "key": 0
+      "key": 8
     },
     "Y": {
       "tracks": 4,
       "bpm": null,
       "scale": "pentatonic",
-      "key": 9
+      "key": 2
     },
     "Z": {
       "tracks": 4,
@@ -27,17 +27,17 @@
   },
   "transport": {
     "bpm": 120,
-    "stepMode": false,
+    "stepMode": true,
     "railed": true,
     "gravity": 0
   },
   "sound": {
-    "builtInSound": true,
+    "builtInSound": false,
     "noteSound": true,
     "collisionSound": true,
     "collisionIndex": 0,
     "collisionSource": "heads",
-    "midiEnabled": false,
+    "midiEnabled": true,
     "midiChannel": 1
   },
   "view": {
@@ -61,359 +61,359 @@
   },
   "tracks": [
     {
-      "kind": "X",
+      "kind": "Z",
       "track": 0,
       "color": "#ff5d5d",
-      "instrument": 6,
+      "instrument": 1,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 1,
-      "color": "#ff7a45",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 2,
-      "color": "#ff9b3d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 3,
-      "color": "#ffb84d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 4,
-      "color": "#ffd24d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 5,
-      "color": "#ffe97a",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 6,
-      "color": "#ff6db0",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 7,
-      "color": "#ff9bd0",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 8,
-      "color": "#ff5d5d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 9,
-      "color": "#ff7a45",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 10,
-      "color": "#ff9b3d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 11,
-      "color": "#ffb84d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 12,
-      "color": "#ffd24d",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 13,
-      "color": "#ffe97a",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 14,
-      "color": "#ff6db0",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "X",
-      "track": 15,
-      "color": "#ff9bd0",
-      "instrument": 6,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 60
-    },
-    {
-      "kind": "Y",
-      "track": 0,
-      "color": "#4dc8ff",
-      "instrument": 7,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 1,
-      "color": "#5df0e0",
-      "instrument": 8,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 2,
-      "color": "#5dff9b",
-      "instrument": 9,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 3,
-      "color": "#9bff7a",
-      "instrument": 10,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 4,
-      "color": "#6d8bff",
-      "instrument": 7,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 5,
-      "color": "#8b6dff",
-      "instrument": 8,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 6,
-      "color": "#b48bff",
-      "instrument": 9,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 7,
-      "color": "#7adcff",
-      "instrument": 10,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 8,
-      "color": "#4dc8ff",
-      "instrument": 7,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 9,
-      "color": "#5df0e0",
-      "instrument": 8,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 10,
-      "color": "#5dff9b",
-      "instrument": 9,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 11,
-      "color": "#9bff7a",
-      "instrument": 10,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 12,
-      "color": "#6d8bff",
-      "instrument": 7,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 13,
-      "color": "#8b6dff",
-      "instrument": 8,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 14,
-      "color": "#b48bff",
-      "instrument": 9,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
-    },
-    {
-      "kind": "Y",
-      "track": 15,
-      "color": "#7adcff",
-      "instrument": 10,
-      "rate": 4,
-      "muted": true,
-      "solo": false,
-      "scale": "pentatonic",
-      "root": 57
+      "root": 32
     },
     {
       "kind": "Z",
+      "track": 1,
+      "color": "#ff7a45",
+      "instrument": 10,
+      "rate": 4,
+      "muted": false,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 2,
+      "color": "#ff9b3d",
+      "instrument": 9,
+      "rate": 4,
+      "muted": false,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 3,
+      "color": "#ffb84d",
+      "instrument": 6,
+      "rate": 4,
+      "muted": false,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 4,
+      "color": "#ffd24d",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 5,
+      "color": "#ffe97a",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 6,
+      "color": "#ff6db0",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 7,
+      "color": "#ff9bd0",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 8,
+      "color": "#ff5d5d",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 9,
+      "color": "#ff7a45",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 10,
+      "color": "#ff9b3d",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 11,
+      "color": "#ffb84d",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 12,
+      "color": "#ffd24d",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 13,
+      "color": "#ffe97a",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 14,
+      "color": "#ff6db0",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "Z",
+      "track": 15,
+      "color": "#ff9bd0",
+      "instrument": 6,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 60
+    },
+    {
+      "kind": "X",
+      "track": 0,
+      "color": "#4dc8ff",
+      "instrument": 7,
+      "rate": 4,
+      "muted": false,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 38
+    },
+    {
+      "kind": "X",
+      "track": 1,
+      "color": "#5df0e0",
+      "instrument": 8,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 2,
+      "color": "#5dff9b",
+      "instrument": 9,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 3,
+      "color": "#9bff7a",
+      "instrument": 10,
+      "rate": 4,
+      "muted": false,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 19
+    },
+    {
+      "kind": "X",
+      "track": 4,
+      "color": "#6d8bff",
+      "instrument": 7,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 5,
+      "color": "#8b6dff",
+      "instrument": 8,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 6,
+      "color": "#b48bff",
+      "instrument": 9,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 7,
+      "color": "#7adcff",
+      "instrument": 10,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 8,
+      "color": "#4dc8ff",
+      "instrument": 7,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 9,
+      "color": "#5df0e0",
+      "instrument": 8,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 10,
+      "color": "#5dff9b",
+      "instrument": 9,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 11,
+      "color": "#9bff7a",
+      "instrument": 10,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 12,
+      "color": "#6d8bff",
+      "instrument": 7,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 13,
+      "color": "#8b6dff",
+      "instrument": 8,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 14,
+      "color": "#b48bff",
+      "instrument": 9,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "X",
+      "track": 15,
+      "color": "#7adcff",
+      "instrument": 10,
+      "rate": 4,
+      "muted": true,
+      "solo": false,
+      "scale": "pentatonic",
+      "root": 57
+    },
+    {
+      "kind": "Y",
       "track": 0,
       "color": "#a16dff",
       "instrument": 6,
@@ -424,18 +424,18 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 1,
       "color": "#bd7dff",
-      "instrument": 6,
+      "instrument": 7,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
-      "root": 64
+      "root": 31
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 2,
       "color": "#d18cff",
       "instrument": 6,
@@ -446,7 +446,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 3,
       "color": "#e29cff",
       "instrument": 6,
@@ -457,7 +457,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 4,
       "color": "#8f89ff",
       "instrument": 6,
@@ -468,7 +468,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 5,
       "color": "#76a8ff",
       "instrument": 6,
@@ -479,7 +479,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 6,
       "color": "#86c7ff",
       "instrument": 6,
@@ -490,7 +490,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 7,
       "color": "#9be5ff",
       "instrument": 6,
@@ -501,7 +501,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 8,
       "color": "#a16dff",
       "instrument": 6,
@@ -512,7 +512,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 9,
       "color": "#bd7dff",
       "instrument": 6,
@@ -523,7 +523,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 10,
       "color": "#d18cff",
       "instrument": 6,
@@ -534,7 +534,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 11,
       "color": "#e29cff",
       "instrument": 6,
@@ -545,7 +545,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 12,
       "color": "#8f89ff",
       "instrument": 6,
@@ -556,7 +556,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 13,
       "color": "#76a8ff",
       "instrument": 6,
@@ -567,7 +567,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 14,
       "color": "#86c7ff",
       "instrument": 6,
@@ -578,7 +578,7 @@
       "root": 64
     },
     {
-      "kind": "Z",
+      "kind": "Y",
       "track": 15,
       "color": "#9be5ff",
       "instrument": 6,
@@ -589,5 +589,25 @@
       "root": 64
     }
   ],
-  "score": {}
+  "score": {
+    "2:0:0": 0.7,
+    "4:0:3": 0.7,
+    "3:0:3": 0.7,
+    "3:0:2": 0.7,
+    "2:1:1": 0.7,
+    "4:1:0": 0.7,
+    "2:3:2": 0.7,
+    "4:2:1": 0.7,
+    "0:0:2": 0.7,
+    "0:3:2": 0.7,
+    "0:3:0": 0.7,
+    "5:3:2": 0.7,
+    "1:1:2": 0.7,
+    "1:1:1": 0.7,
+    "0:2:1": 0.7,
+    "0:1:1": 0.7,
+    "2:1:3": 0.7,
+    "1:3:0": 0.7,
+    "1:3:2": 0.7
+  }
 }

@@ -58,7 +58,7 @@ const H_COLORS = ['#ff5d5d', '#ff7a45', '#ff9b3d', '#ffb84d', '#ffd24d', '#ffe97
 const V_COLORS = ['#4dc8ff', '#5df0e0', '#5dff9b', '#9bff7a', '#6d8bff', '#8b6dff', '#b48bff', '#7adcff'];
 const Z_COLORS = ['#a16dff', '#bd7dff', '#d18cff', '#e29cff', '#8f89ff', '#76a8ff', '#86c7ff', '#9be5ff'];
 
-// One track per row (H) / column (V). Every track shares the SAME base speed so
+// One track per axis slice. Every track shares the SAME base speed so
 // that, once aligned, heads move together in continuous mode — divergence comes
 // ONLY from a deliberately different per-track `rate` (an honest polyrhythm),
 // never from a hidden speed spread. In the clean regime the engine re-derives
@@ -69,9 +69,9 @@ const H_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: 
 const V_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: BASE_SPEED }));
 const Z_TRACKS = Array.from({ length: MAX_TRACKS_PER_SIDE }, (_, t) => ({ cell: t, speed: BASE_SPEED }));
 
-// First impression = a real little band: the whole H band plays the sampled
-// PIANO; the V band is the rhythm section (drums cycling). Only head 0 starts
-// running — press run and it just works; wake the others one by one.
+// Default timbres: X and Z are sampled piano; Y is the rhythm section (drums
+// cycling). Heads boot muted so a session starts quiet and can be woken track by
+// track.
 const PIANO = 6; // MELODIC index of the sampled piano (io/audio.js)
 const DRUM0 = 7; // first drum index (MELODIC.length)
 
@@ -128,7 +128,7 @@ for (const b of balls) {
 const engine = new Engine(surface, balls, divisions);
 engine.paused = true;
 engine.collisionRadius = surface.unit * 0.55; // two heads "meet" within ~one cell
-engine.stepMode = true; // START on the clocked grid (no gravity by default);
+engine.stepMode = true; // render heads snapped to the grid by default
 // heads spawn already lined up as a bar, so the first impression is a clean,
 // readable step sequencer — continuous/gravity/derail are the wild modes.
 const sequencer = new Sequencer({ cells: divisions.X });
@@ -248,7 +248,22 @@ function rotateBands() {
   view.refreshArmedCells(sequencer);
 }
 
-const ui = new UIPanel({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands });
+function updateTrackHome(b) {
+  b.home = homeFor(b.kind, b.track ?? 0, surface, b.speed || 0.4);
+}
+
+const ui = new UIPanel({
+  engine,
+  view,
+  audio,
+  sequencer,
+  midi,
+  controls,
+  flags,
+  setDivisions,
+  rotateBands,
+  updateTrackHome,
+});
 
 // Boot look & feel — load the starting parameters from presets/default.json
 // (the "both" surface, a darker acrylic, a brighter ambient, the firefly heads,

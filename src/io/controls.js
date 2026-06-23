@@ -146,9 +146,8 @@ export class Controls {
 
   // Audible feedback when you ARM a cell: play the note that cell would sound.
   //
-  // A cell has no single pitch — it is POSITIONAL, so each of the two bands whose
-  // heads cross this face reads a DIFFERENT pitch from it (one from the row, one
-  // from the column). To pick which one the click means, we use WHERE in the cell
+  // A cell has no single pitch: it is positional, so each axis band whose heads
+  // cross this face can read a different pitch from it. To pick which one the click means, we use WHERE in the cell
   // the cursor landed: the offset (du,dv) from the cell centre. If |du| > |dv| the
   // cursor is nearer a u-edge (a "vertical" side), i.e. aiming at the head that
   // CROSSES that edge — the one travelling along u, which reads its pitch from the
@@ -312,8 +311,13 @@ export class Controls {
       let granted = false;
       try {
         granted = (await DeviceOrientationEvent.requestPermission()) === 'granted';
-      } catch (_) { /* permission API threw — treat as denied */ }
-      if (!granted) { this._orientationWired = false; return; }
+      } catch (_) {
+        /* permission API threw — treat as denied */
+      }
+      if (!granted) {
+        this._orientationWired = false;
+        return;
+      }
     }
 
     if (typeof DeviceOrientationEvent === 'undefined') return;

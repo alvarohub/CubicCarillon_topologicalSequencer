@@ -2,10 +2,9 @@
 //
 // Musical scales and per-band tuning. Pure module (no audio, no DOM).
 //
-// A "band" (the horizontal group or the transversal group of tracks) has its own
-// scale + key. Pitch is read from a head's PERPENDICULAR cell index (its "level
-// in the stack"), so the same armed cell sounds a different pitch depending on
-// which band's head reads it — like reading a score rotated 90°.
+// A band (X, Y, or Z) has its own scale + tonic. Pitch is read from a head's
+// perpendicular cell index (its level in the stack), so the same armed cell can
+// sound differently depending on which axis band reads it.
 
 // Semitone offsets within one octave for each scale type. All seven diatonic
 // MODES (the serious toolkit) plus the pentatonics and blues/chromatic for play.
@@ -30,7 +29,7 @@ export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
 
 // A band's tuning: a scale name + a root MIDI note (the key).
 export class Band {
-  constructor({ name = 'horizontal', scale = 'pentatonic', root = 60 } = {}) {
+  constructor({ name = 'axis', scale = 'pentatonic', root = 60 } = {}) {
     this.name = name;
     this.scale = scale; // key into SCALES
     this.root = root; // MIDI note of degree 0 (the key)

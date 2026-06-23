@@ -23,8 +23,8 @@ export class Ball {
     this.vx = vx;
     this.vy = vy;
     this.color = color;
-    // kind = which BAND this head belongs to: 'H' (horizontal) or 'V'
-    // (transversal). This is the invariant tag — note that across an edge the
+    // kind = which AXIS band this head belongs to: 'X', 'Y', or 'Z'. This is
+    // the invariant tag — note that across an edge the
     // *local* axis the head travels along can swap (the transition maps are
     // signed permutations), but the band membership does not. Used for grouping,
     // alignment, and which coordinate gives the pitch.

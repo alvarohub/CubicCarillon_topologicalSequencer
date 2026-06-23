@@ -2,15 +2,15 @@
 //
 // Holds the surface + balls, advances them, and collects events.
 //
-// Two motion MODES:
-//   - continuous (default): heads glide along geodesics; each track keeps its own
-//     speed, so intersections recur at the LCM of the periods (polyrhythm).
-//   - step: a global clock ticks at `bpm`; on each tick every head advances by
-//     exactly ONE cell along its rail (a "real" step sequencer / piano-roll grid).
+// One motion model drives both display MODES:
+//   - continuous: heads are rendered at their continuous geodesic coordinates.
+//   - step: the same continuous coordinates are rendered snapped to cell centres.
+//     The physics, cell-entry detection, and note timing stay identical; only the
+//     visual presentation changes.
 //
 // Two rail STATES (independent of gravity and of the motion mode):
 //   - railed (default): one coordinate is held fixed, the head stays on its
-//     row/column track. Gravity, if on, acts only ALONG the rail.
+//     axis track. Gravity, if on, acts only ALONG the rail.
 //   - derailed: free geodesic motion; gravity (if on) can pull the head off-axis.
 //
 // Gravity is handled physically: a world "down" vector is projected onto each

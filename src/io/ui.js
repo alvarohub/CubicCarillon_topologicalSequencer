@@ -9,7 +9,7 @@ import { MELODIC, DRUMS, COLLISION_SOUNDS } from './audio.js';
 import { SCALE_NAMES, NOTE_NAMES, SCALES } from '../core/scales.js';
 
 export class UIPanel {
-  constructor({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands }) {
+  constructor({ engine, view, audio, sequencer, midi, controls, flags, setDivisions, rotateBands, updateTrackHome }) {
     this.engine = engine;
     this.view = view;
     this.audio = audio;
@@ -19,6 +19,7 @@ export class UIPanel {
     this.flags = flags; // { builtInSound, noteSound, collisionSound } — read by main's router
     this.setDivisions = setDivisions || (() => {}); // main's grid-resolution rebuild
     this.rotateBands = rotateBands || (() => this.engine.swapBands()); // main's band rotation
+    this.updateTrackHome = updateTrackHome || (() => {}); // main owns spawn/home geometry
     this._build();
     this.refresh();
     // anything the pointer/keyboard changes elsewhere gets mirrored here
@@ -548,7 +549,8 @@ export class UIPanel {
       const dot = el('span', 'ui-dot');
       dot.style.background = ball.color;
       row.appendChild(dot);
-      row.appendChild(el('span', 'ui-kind', `${ball.kind}${ball.track + 1}`));
+      const kindEl = el('span', 'ui-kind', `${ball.kind}${ball.track + 1}`);
+      row.appendChild(kindEl);
 
       const runTrackBtn = el('button', 'ui-btn ui-mini', '◯');
       runTrackBtn.title = 'track run/stop';
@@ -654,6 +656,7 @@ export class UIPanel {
         index: i,
         ball,
         row,
+        kindEl,
         runBtn: runTrackBtn,
         sel,
         durSel,
@@ -677,6 +680,18 @@ export class UIPanel {
       r.row.style.display = on ? '' : 'none';
     }
     this.engine.refreshSolo();
+  }
+
+  _syncTrackRows() {
+    for (const r of this.trackRows) {
+      const axis = normalizeAxis(r.ball.kind, r.axis);
+      if (r.ball.kind !== axis) r.ball.kind = axis;
+      if (r.axis !== axis) {
+        r.axis = axis;
+        this.groupUI[axis]?.list.appendChild(r.row);
+      }
+      if (r.kindEl) r.kindEl.textContent = `${axis}${(r.ball.track ?? 0) + 1}`;
+    }
   }
 
   _groupRows(axis) {
@@ -780,6 +795,7 @@ export class UIPanel {
   // EVERY tweakable in one plain object — the session. Saved as JSON, loadable,
   // and listable live with the 'p' key.
   collectParams() {
+    this._syncTrackRows();
     const v = this.view,
       e = this.engine;
     return {
@@ -870,7 +886,7 @@ export class UIPanel {
     // all three axes equally.
     if (p.divisions != null) {
       const d = typeof p.divisions === 'object' ? p.divisions : { X: p.divisions, Y: p.divisions, Z: p.divisions };
-      for (const ax of ['X', 'Y', 'Z']) if (d[ax] != null) this.setDivisions(ax, d[ax]); // clears the score
+      for (const ax of ['X', 'Y', 'Z']) if (d[ax] != null) this.setDivisions(ax, d[ax]);
     }
     const t = p.transport || {};
     if (t.bpm != null) this.engine.bpm = t.bpm;
@@ -934,10 +950,22 @@ export class UIPanel {
       if (g.scale != null) this._applyGroupScale(axis, g.scale);
       if (g.key != null) this._applyGroupKey(axis, g.key);
     }
-    (p.tracks || []).forEach((tp, i) => {
+    const tracks = p.tracks || [];
+    tracks.forEach((tp, i) => {
       const b = this.engine.balls[i];
       if (!b) return;
-      if (tp.active != null) b.active = tp.active;
+      let homeChanged = false;
+      const nextKind = tp.kind != null ? normalizeAxis(tp.kind, b.kind) : b.kind;
+      if (nextKind !== b.kind) {
+        b.kind = nextKind;
+        homeChanged = true;
+      }
+      if (tp.track != null && tp.track !== b.track) {
+        b.track = tp.track;
+        homeChanged = true;
+      }
+      const fitsAxis = (b.track ?? 0) < (this.engine.div[b.kind] ?? 0);
+      b.active = tp.active != null ? !!tp.active && fitsAxis : fitsAxis;
       if (tp.running != null) b.running = tp.running;
       if (tp.instrument != null) b.instrument = tp.instrument;
       if (tp.rate != null) b.rate = tp.rate;
@@ -954,7 +982,17 @@ export class UIPanel {
       if (tp.cellJ != null) b.cellJ = tp.cellJ;
       if (b.band && tp.scale != null) b.band.scale = tp.scale;
       if (b.band && tp.root != null) b.band.root = tp.root;
+      if (homeChanged) {
+        this.updateTrackHome(b);
+        if (!hasRuntimeTrackState) this.engine.resetHead(b);
+      }
     });
+    for (let i = tracks.length; i < this.engine.balls.length; i++) {
+      const b = this.engine.balls[i];
+      b.active = false;
+      b.muted = true;
+      b.solo = false;
+    }
     this.engine.refreshSolo();
     if (p.score) {
       this.sequencer.clear();
@@ -1016,6 +1054,7 @@ export class UIPanel {
 
   // ---- state mirror -----------------------------------------------------------
   refresh() {
+    this._syncTrackRows();
     this.playBtn.textContent = this.engine.paused ? '◯' : '◉';
     this.playBtn.classList.toggle('on', !this.engine.paused);
     this.modeBtn.textContent = this.engine.stepMode ? 'Continuous' : 'Step';
@@ -1162,4 +1201,10 @@ function inlineCheck(row, label, init, onChange) {
   wrap.append(c, el('span', null, label));
   row.appendChild(wrap);
   return c;
+}
+
+function normalizeAxis(kind, fallback = 'X') {
+  if (kind === 'H') return 'X';
+  if (kind === 'V') return 'Y';
+  return kind === 'X' || kind === 'Y' || kind === 'Z' ? kind : fallback;
 }

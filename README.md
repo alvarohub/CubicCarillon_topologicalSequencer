@@ -11,16 +11,15 @@ later, to a physical LED cube driven by a microcontroller.
 ES modules need to be served over HTTP (not opened as a `file://`):
 
 ```sh
-cd web
-python3 -m http.server 8000
-# open http://localhost:8000
+python3 -m http.server 8001
+# open http://localhost:8001
 ```
 
 For phone tilt/sensor control, serve over **HTTPS** (e.g. `ngrok http 8000`)
 and open it on the phone; iOS asks for motion permission via the Start button.
 
 Controls: **drag** = rotate cube · **space** = pause · **g** = toggle gravity ·
-phone = **tilt to roll**.
+**m** = snap/unsnap step display · phone = **tilt to roll**.
 
 ## Architecture (engine + adapters)
 

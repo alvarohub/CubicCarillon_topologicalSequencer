@@ -1,16 +1,16 @@
 {
   "version": 1,
   "divisions": {
-    "X": 4,
+    "X": 14,
     "Y": 4,
     "Z": 4
   },
   "groups": {
     "X": {
-      "tracks": 4,
+      "tracks": 14,
       "bpm": null,
-      "scale": "pentatonic",
-      "key": 0
+      "scale": "major",
+      "key": 9
     },
     "Y": {
       "tracks": 4,
@@ -28,7 +28,7 @@
   "transport": {
     "bpm": 120,
     "stepMode": false,
-    "railed": true,
+    "railed": false,
     "gravity": 0
   },
   "sound": {
@@ -37,27 +37,27 @@
     "collisionSound": true,
     "collisionIndex": 0,
     "collisionSource": "heads",
-    "midiEnabled": false,
+    "midiEnabled": true,
     "midiChannel": 1
   },
   "view": {
     "surfaceStyle": "both",
     "facetGap": 0.12,
-    "popAmount": 0.6,
-    "ambientIntensity": 5.15,
+    "popAmount": 0.05,
+    "ambientIntensity": 6,
     "cubeOpacity": 1,
-    "cubeColor": "#231f1f",
-    "armedColor": "#c7c4c4",
+    "cubeColor": "#242323",
+    "armedColor": "#474c4d",
     "gridColor": "#3a4f70",
     "bgColor": "#0a0c12",
     "flashMode": "instrument",
-    "headStyle": "inner",
-    "headDepth": -0.02,
-    "headCoreSize": 0.8,
-    "mirrorFirefly": true,
-    "fireflyBright": 4.8,
-    "fireflyDim": 3,
-    "fireflyDesat": 0.3
+    "headStyle": "square",
+    "headDepth": 0,
+    "headCoreSize": 0.4,
+    "mirrorFirefly": false,
+    "fireflyBright": 0.5,
+    "fireflyDim": 0,
+    "fireflyDesat": 0
   },
   "tracks": [
     {
@@ -66,10 +66,10 @@
       "color": "#ff5d5d",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -77,10 +77,10 @@
       "color": "#ff7a45",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -88,10 +88,10 @@
       "color": "#ff9b3d",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -99,10 +99,10 @@
       "color": "#ffb84d",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -110,10 +110,10 @@
       "color": "#ffd24d",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -121,10 +121,10 @@
       "color": "#ffe97a",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -132,10 +132,10 @@
       "color": "#ff6db0",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -143,10 +143,10 @@
       "color": "#ff9bd0",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -154,10 +154,10 @@
       "color": "#ff5d5d",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 52
     },
     {
       "kind": "X",
@@ -165,32 +165,32 @@
       "color": "#ff7a45",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
       "track": 10,
       "color": "#ff9b3d",
-      "instrument": 6,
+      "instrument": 4,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
       "track": 11,
       "color": "#ffb84d",
-      "instrument": 6,
+      "instrument": 8,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -198,10 +198,10 @@
       "color": "#ffd24d",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -209,10 +209,10 @@
       "color": "#ffe97a",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -222,8 +222,8 @@
       "rate": 4,
       "muted": true,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "X",
@@ -233,8 +233,8 @@
       "rate": 4,
       "muted": true,
       "solo": false,
-      "scale": "pentatonic",
-      "root": 60
+      "scale": "major",
+      "root": 57
     },
     {
       "kind": "Y",
@@ -242,7 +242,7 @@
       "color": "#4dc8ff",
       "instrument": 7,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 57
@@ -253,7 +253,7 @@
       "color": "#5df0e0",
       "instrument": 8,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 57
@@ -262,9 +262,9 @@
       "kind": "Y",
       "track": 2,
       "color": "#5dff9b",
-      "instrument": 9,
+      "instrument": 8,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 57
@@ -275,7 +275,7 @@
       "color": "#9bff7a",
       "instrument": 10,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 57
@@ -418,7 +418,7 @@
       "color": "#a16dff",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 64
@@ -429,7 +429,7 @@
       "color": "#bd7dff",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 64
@@ -438,9 +438,9 @@
       "kind": "Z",
       "track": 2,
       "color": "#d18cff",
-      "instrument": 6,
+      "instrument": 9,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 64
@@ -451,7 +451,7 @@
       "color": "#e29cff",
       "instrument": 6,
       "rate": 4,
-      "muted": true,
+      "muted": false,
       "solo": false,
       "scale": "pentatonic",
       "root": 64
@@ -589,5 +589,24 @@
       "root": 64
     }
   ],
-  "score": {}
+  "score": {
+    "5:3:1": 0.7,
+    "5:3:4": 0.7,
+    "5:3:6": 0.7,
+    "5:3:10": 0.7,
+    "5:3:12": 0.7,
+    "5:3:8": 0.7,
+    "5:1:1": 0.7,
+    "5:1:3": 0.7,
+    "5:1:5": 0.7,
+    "5:1:7": 0.7,
+    "5:1:9": 0.7,
+    "5:1:11": 0.7,
+    "5:1:13": 0.7,
+    "4:5:2": 0.7,
+    "4:8:1": 0.7,
+    "4:11:2": 0.7,
+    "4:3:0": 0.7,
+    "4:2:0": 0.7
+  }
 }
