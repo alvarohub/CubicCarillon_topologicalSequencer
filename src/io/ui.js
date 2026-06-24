@@ -186,6 +186,8 @@ export class UIPanel {
       if (on && !this.midi.access) {
         const outs = await this.midi.init();
         this._fillMidiOutputs(outs);
+        // Auto-refresh the device list whenever ports appear/disappear (hot-plug).
+        this.midi.onDeviceChange = (outs) => this._fillMidiOutputs(outs);
       }
       this.refresh();
     });
@@ -193,6 +195,17 @@ export class UIPanel {
     this.midiSel = el('select', 'ui-select');
     this.midiSel.addEventListener('change', () => this.midi.selectOutput(this.midiSel.value));
     row.appendChild(this.midiSel);
+
+    // Refresh button: re-scans ports without toggling MIDI out — useful on iOS
+    // where AUM virtual ports may appear after the checkbox was first enabled.
+    const midiRefreshBtn = el('button', 'ui-btn', '⟳');
+    midiRefreshBtn.title = 'Refresh MIDI device list';
+    midiRefreshBtn.addEventListener('click', async () => {
+      const outs = this.midi.access ? this.midi.outputs() : await this.midi.init();
+      this._fillMidiOutputs(outs);
+    });
+    row.appendChild(midiRefreshBtn);
+
     row.appendChild(el('label', 'ui-label slim', 'Ch'));
     this.chanSel = el('select', 'ui-select ui-chan');
     for (let c = 1; c <= 16; c++) this.chanSel.appendChild(option(String(c), c));
@@ -205,7 +218,11 @@ export class UIPanel {
   _fillMidiOutputs(outs) {
     this.midiSel.innerHTML = '';
     if (!outs.length) {
-      this.midiSel.appendChild(option('— no devices —', ''));
+      const err = this.midi._error || '';
+      const label = err.toLowerCase().includes('not supported')
+        ? '⚠ Web MIDI unavailable — Safari/iOS does not support the Web MIDI API. Use AUM\'s built-in MIDI routing or try a Chromium-based browser on macOS.'
+        : '— no devices —';
+      this.midiSel.appendChild(option(label, ''));
       return;
     }
     for (const o of outs) this.midiSel.appendChild(option(o.name, o.id));

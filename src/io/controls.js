@@ -78,9 +78,9 @@ export class Controls {
   // page. Arm a global one-shot unlock so any early tap/key safely resumes the
   // AudioContext before the user starts interacting with cells/tracks.
   _wireGlobalAudioUnlock() {
-    const unlock = () => {
+    const unlock = async () => {
       if (this._audioUnlocked) return;
-      this.audio.resume();
+      await this.audio.resume();
       this._audioUnlocked = true;
       window.removeEventListener('pointerdown', this._unlockAudioBound, true);
       window.removeEventListener('keydown', this._unlockAudioBound, true);
@@ -91,6 +91,14 @@ export class Controls {
     window.addEventListener('pointerdown', this._unlockAudioBound, true);
     window.addEventListener('keydown', this._unlockAudioBound, true);
     window.addEventListener('touchstart', this._unlockAudioBound, true);
+
+    // Re-resume the AudioContext whenever the page becomes visible again (e.g.
+    // after multitasking, locking the screen, or returning from AUM on iPad).
+    // iOS suspends the context on hide and does not auto-resume on show.
+    document.addEventListener('visibilitychange', () => {
+      if (!this._audioUnlocked) return;
+      if (document.visibilityState === 'visible') this.audio.resume();
+    });
   }
 
   // route taps from the view's raycaster:
@@ -280,7 +288,7 @@ export class Controls {
     const btn = document.getElementById(startButtonId);
     if (!btn) return;
     btn.addEventListener('click', async () => {
-      this.audio.resume();
+      await this.audio.resume(); // await so the context is running before we play
       this._audioUnlocked = true;
       if (this._unlockAudioBound) {
         window.removeEventListener('pointerdown', this._unlockAudioBound, true);
