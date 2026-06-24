@@ -47,6 +47,8 @@ export class AudioOut {
   }
 
   // Must be called from a user gesture (browsers block audio otherwise).
+  // Returns a Promise that resolves once the AudioContext is running, so
+  // callers can await it before scheduling notes (critical on iOS Safari).
   resume() {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -56,7 +58,8 @@ export class AudioOut {
       this.master.connect(this.ctx.destination);
       this._loadPiano(); // start fetching the sampled piano in the background
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state === 'suspended') return this.ctx.resume();
+    return Promise.resolve();
   }
 
   // The sample-accurate audio clock. The scheduler computes note onset TIMES on

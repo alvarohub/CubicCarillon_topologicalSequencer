@@ -30,6 +30,7 @@ export class MidiOut {
     this.drumNote = 38; // GM snare for collisions, overridable
     this._error = null;
     this._lastProgramByChannel = new Map();
+    this.onDeviceChange = null; // optional callback(outputs[]) fired on hot-plug
   }
 
   get available() {
@@ -44,6 +45,11 @@ export class MidiOut {
     }
     try {
       this.access = await navigator.requestMIDIAccess();
+      // Hot-plug: fire onDeviceChange whenever ports are added or removed
+      // (e.g. AUM virtual ports appearing after the user enables them).
+      this.access.onstatechange = () => {
+        if (this.onDeviceChange) this.onDeviceChange(this.outputs());
+      };
       return this.outputs();
     } catch (e) {
       this._error = String(e);
