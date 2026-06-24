@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { Head, createFlatTorus, createIcosaSphere, createMobiusStrip } from './atlas.js';
+import { Head, createFlatTorus, createIcosaSphere, createSquareTube } from './atlas.js';
 
 const SURFACES = [
   { id: 'torus', label: 'Flat torus', build: createFlatTorus },
-  { id: 'mobius180', label: 'Mobius strip, 180 twist', build: () => createMobiusStrip(0.5) },
-  { id: 'twist90', label: 'Quarter-turn quotient, 90', build: () => createMobiusStrip(0.25) },
-  { id: 'twist270', label: 'Quarter-turn quotient, 270', build: () => createMobiusStrip(0.75) },
+  { id: 'tube0', label: 'Square tube torus', build: () => createSquareTube(0) },
+  { id: 'tube90', label: 'Square tube, 90 twist', build: () => createSquareTube(1) },
+  { id: 'tube180', label: 'Square tube, 180 twist', build: () => createSquareTube(2) },
+  { id: 'tube270', label: 'Square tube, 270 twist', build: () => createSquareTube(3) },
   { id: 'sphere', label: 'Icosahedral sphere', build: createIcosaSphere },
 ];
 
@@ -46,6 +47,7 @@ scene.add(key);
 let surface = null;
 let surfaceMesh = null;
 let wireMesh = null;
+let gridMesh = null;
 let heads = [];
 let headMeshes = [];
 let running = true;
@@ -90,15 +92,23 @@ class TinySynth {
 function buildScene() {
   const spec = SURFACES.find((s) => s.id === surfaceSel.value) || SURFACES[0];
   surface = spec.build();
+  orientRig(surface);
   if (surfaceMesh) rig.remove(surfaceMesh);
   if (wireMesh) rig.remove(wireMesh);
+  if (gridMesh) rig.remove(gridMesh);
   for (const m of headMeshes) rig.remove(m);
   surfaceMesh = buildSurfaceMesh(surface);
   wireMesh = buildWire(surfaceMesh.geometry);
-  rig.add(surfaceMesh, wireMesh);
+  gridMesh = buildGrid(surface);
+  rig.add(surfaceMesh, wireMesh, gridMesh);
   heads = spawnHeads(surface);
   headMeshes = heads.map((head) => {
-    const mat = new THREE.MeshStandardMaterial({ color: head.color, emissive: head.color, emissiveIntensity: 1.6, roughness: 0.25 });
+    const mat = new THREE.MeshStandardMaterial({
+      color: head.color,
+      emissive: head.color,
+      emissiveIntensity: 1.6,
+      roughness: 0.25,
+    });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 18, 12), mat);
     rig.add(mesh);
     return mesh;
@@ -115,6 +125,34 @@ function spawnHeads(surf) {
       new Head({ id: 2, faceId: 13, x: 0.08, y: -0.08, vx: 0.28, vy: -0.36, color: '#ffe66d' }),
     ];
   }
+  if (surf.kind === 'squareTube') {
+    const heads = [];
+    const warm = ['#ff5d5d', '#ff8a47', '#ffc857', '#fff275'];
+    const cool = ['#64f4c4', '#48c7ff', '#7a8cff', '#d16bff'];
+    for (let side = 0; side < 4; side++) {
+      heads.push(new Head({ id: heads.length, faceId: side, x: -surf.length * 0.32, y: 0, vx: 0.58, vy: 0, color: warm[side] }));
+    }
+    for (let i = 0; i < 4; i++) {
+      const x = -surf.length / 2 + ((i + 0.5) / 4) * surf.length;
+      heads.push(new Head({ id: heads.length, faceId: 0, x, y: -surf.side * 0.36, vx: 0, vy: 0.42, color: cool[i] }));
+    }
+    return heads;
+  }
+  if (surf.kind === 'torus') {
+    const face = surf.faces[0];
+    const heads = [];
+    const warm = ['#ff5d5d', '#ff8a47', '#ffc857', '#fff275'];
+    const cool = ['#64f4c4', '#48c7ff', '#7a8cff', '#d16bff'];
+    for (let j = 0; j < 4; j++) {
+      const y = -face.height / 2 + ((j + 0.5) / 4) * face.height;
+      heads.push(new Head({ id: heads.length, x: -face.width * 0.38, y, vx: 0.64, vy: 0, color: warm[j] }));
+    }
+    for (let i = 0; i < 4; i++) {
+      const x = -face.width / 2 + ((i + 0.5) / 4) * face.width;
+      heads.push(new Head({ id: heads.length, x, y: -face.height * 0.38, vx: 0, vy: 0.45, color: cool[i] }));
+    }
+    return heads;
+  }
   return [
     new Head({ id: 0, x: -1.6, y: -0.33, vx: 0.72, vy: 0.29, color: '#ff6b6b' }),
     new Head({ id: 1, x: 0.6, y: 0.18, vx: -0.52, vy: 0.37, color: '#59d7ff' }),
@@ -126,11 +164,24 @@ function buildSurfaceMesh(surf) {
   if (surf.kind === 'torus') {
     const geo = new THREE.TorusGeometry(1.38, 0.38, 42, 160);
     paintByPosition(geo);
-    return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.02 }));
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.02 }),
+    );
   }
   if (surf.kind === 'twist') {
     const geo = twistedStripGeometry(surf);
-    return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.5 }));
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.5 }),
+    );
+  }
+  if (surf.kind === 'squareTube') {
+    const geo = squareTubeGeometry(surf);
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.66, metalness: 0.02, flatShading: true }),
+    );
   }
   const positions = [];
   const colors = [];
@@ -149,14 +200,105 @@ function buildSurfaceMesh(surf) {
 }
 
 function buildWire(geo) {
-  return new THREE.LineSegments(new THREE.WireframeGeometry(geo), new THREE.LineBasicMaterial({ color: 0xb7e6ff, transparent: true, opacity: 0.22 }));
+  return new THREE.LineSegments(
+    new THREE.WireframeGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0xb7e6ff, transparent: true, opacity: 0.16 }),
+  );
+}
+
+function orientRig(surf) {
+  if (surf.kind === 'squareTube') {
+    rig.rotation.set(1.12, 0.38, -0.48);
+  } else if (surf.kind === 'torus') {
+    rig.rotation.set(1.02, 0.18, -0.18);
+  } else {
+    rig.rotation.set(0.95, 0, 0);
+  }
+}
+
+function buildGrid(surf) {
+  const positions = [];
+  if (surf.kind === 'torus') {
+    const face = surf.faces[0];
+    const uDiv = surf.grid?.u ?? 12;
+    const vDiv = surf.grid?.v ?? 8;
+    for (let j = 0; j <= vDiv; j++) {
+      const y = -face.height / 2 + (j / vDiv) * face.height;
+      addGridLine(positions, 160, (t) => surf.embed({ faceId: 0, x: -face.width / 2 + t * face.width, y }, surf));
+    }
+    for (let i = 0; i <= uDiv; i++) {
+      const x = -face.width / 2 + (i / uDiv) * face.width;
+      addGridLine(positions, 96, (t) => surf.embed({ faceId: 0, x, y: -face.height / 2 + t * face.height }, surf));
+    }
+  } else if (surf.kind === 'squareTube') {
+    const uDiv = surf.grid?.u ?? 16;
+    const vDiv = surf.grid?.v ?? 4;
+    for (const face of surf.faces) {
+      for (let j = 0; j <= vDiv; j++) {
+        const y = -surf.side / 2 + (j / vDiv) * surf.side;
+        addGridLine(positions, 160, (t) => surf.embed({ faceId: face.id, x: -surf.length / 2 + t * surf.length, y }, surf));
+      }
+    }
+    for (let i = 0; i <= uDiv; i++) {
+      const x = -surf.length / 2 + (i / uDiv) * surf.length;
+      for (const face of surf.faces) {
+        addGridLine(positions, 12, (t) => surf.embed({ faceId: face.id, x, y: -surf.side / 2 + t * surf.side }, surf));
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const group = new THREE.Group();
+  group.add(new THREE.LineSegments(
+    geo,
+    new THREE.LineBasicMaterial({ color: 0xf5feff, transparent: true, opacity: 0.94 }),
+  ));
+  if (surf.kind === 'squareTube') addSquareTubeCornerRails(group, surf);
+  return group;
+}
+
+function addSquareTubeCornerRails(group, surf) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xfaffff, transparent: true, opacity: 0.94 });
+  for (const face of surf.faces) {
+    const points = [];
+    for (let i = 0; i <= 160; i++) {
+      const x = -surf.length / 2 + (i / 160) * surf.length;
+      const p = embedLifted(surf, face.id, x, surf.side / 2, 0.035);
+      points.push(new THREE.Vector3(p[0], p[1], p[2]));
+    }
+    const curve = new THREE.CatmullRomCurve3(points, surf.twistQuarter === 0);
+    const rail = new THREE.Mesh(new THREE.TubeGeometry(curve, 160, 0.012, 6, surf.twistQuarter === 0), mat);
+    group.add(rail);
+  }
+}
+
+function addGridLine(positions, steps, pointAt) {
+  let prev = lift(pointAt(0));
+  for (let i = 1; i <= steps; i++) {
+    const p = lift(pointAt(i / steps));
+    positions.push(...prev, ...p);
+    prev = p;
+  }
+}
+
+function embedLifted(surf, faceId, x, y, amount) {
+  return lift(surf.embed({ faceId, x, y }, surf), amount);
+}
+
+function lift(p, amount = 0.022) {
+  const n = Math.hypot(p[0], p[1], p[2]) || 1;
+  return [p[0] + (p[0] / n) * amount, p[1] + (p[1] / n) * amount, p[2] + (p[2] / n) * amount];
 }
 
 function paintByPosition(geo) {
   const pos = geo.getAttribute('position');
   const colors = [];
   for (let i = 0; i < pos.count; i++) {
-    const c = new THREE.Color().setHSL((Math.atan2(pos.getY(i), pos.getX(i)) / (Math.PI * 2) + 1) % 1, 0.72, 0.5 + 0.18 * pos.getZ(i));
+    const c = new THREE.Color().setHSL(
+      (Math.atan2(pos.getY(i), pos.getX(i)) / (Math.PI * 2) + 1) % 1,
+      0.72,
+      0.5 + 0.18 * pos.getZ(i),
+    );
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -186,6 +328,42 @@ function twistedStripGeometry(surf) {
       const b = a + rows + 1;
       indices.push(a, b, a + 1, b, b + 1, a + 1);
     }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function squareTubeGeometry(surf) {
+  const cols = 144;
+  const rows = 1;
+  const positions = [];
+  const colors = [];
+  const indices = [];
+  let offset = 0;
+  for (const face of surf.faces) {
+    for (let i = 0; i <= cols; i++) {
+      const x = -surf.length / 2 + (i / cols) * surf.length;
+      for (let j = 0; j <= rows; j++) {
+        const y = -surf.side / 2 + (j / rows) * surf.side;
+        const p = surf.embed({ faceId: face.id, x, y }, surf);
+        const sample = surf.sample({ faceId: face.id, x, y }, surf);
+        const c = new THREE.Color(sample.color);
+        positions.push(...p);
+        colors.push(c.r, c.g, c.b);
+      }
+    }
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        const a = offset + i * (rows + 1) + j;
+        const b = a + rows + 1;
+        indices.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    }
+    offset += (cols + 1) * (rows + 1);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -264,7 +442,8 @@ function updateSwatches(colors) {
 }
 
 function updateReadout() {
-  readout.innerHTML = `<b>${surface.name}</b><br>${surface.description}<br>${surface.faces.length} chart${surface.faces.length === 1 ? '' : 's'} · ${heads.length} reading heads`;
+  const trackLine = surface.trackInfo ? `<br>${surface.trackInfo}` : '';
+  readout.innerHTML = `<b>${surface.name}</b><br>${surface.description}${trackLine}<br>${surface.faces.length} chart${surface.faces.length === 1 ? '' : 's'} · ${heads.length} reading heads`;
 }
 
 function frame(now) {
@@ -307,10 +486,14 @@ function wireControls() {
     rig.rotation.x += dy * 0.006;
   });
   renderer.domElement.addEventListener('pointerup', () => (dragging = false));
-  renderer.domElement.addEventListener('wheel', (ev) => {
-    ev.preventDefault();
-    camera.position.z = Math.max(1.8, Math.min(8, camera.position.z + ev.deltaY * 0.004));
-  }, { passive: false });
+  renderer.domElement.addEventListener(
+    'wheel',
+    (ev) => {
+      ev.preventDefault();
+      camera.position.z = Math.max(1.8, Math.min(8, camera.position.z + ev.deltaY * 0.004));
+    },
+    { passive: false },
+  );
 }
 
 surfaceSel.addEventListener('change', buildScene);
@@ -338,4 +521,12 @@ wireControls();
 buildScene();
 requestAnimationFrame(frame);
 
-window.__surfaceLab = { get surface() { return surface; }, get heads() { return heads; }, rebuild: buildScene };
+window.__surfaceLab = {
+  get surface() {
+    return surface;
+  },
+  get heads() {
+    return heads;
+  },
+  rebuild: buildScene,
+};

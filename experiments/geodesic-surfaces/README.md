@@ -20,15 +20,16 @@ The lab separates the idea of a reading head from the Cube Carillon cuboid rende
 
 - A head moves in a local chart.
 - Edge crossings use explicit atlas transition maps.
+- Square grids are drawn as explicit surface curves, so the visible tracks match the chart logic.
 - The head samples a procedural colour field on the surface.
 - The sampled colour is mapped to pitch and head colour.
 - Nearby heads create collision ticks.
 
 ## Included Surfaces
 
-- **Flat torus**: one rectangle, opposite edges glued. This is exact as a flat quotient surface.
-- **Mobius strip, 180 twist**: one strip, left/right edges glued with a flip. The open boundaries reflect heads in this lab.
-- **Quarter-turn 90 / 270 quotients**: square fundamental domains with edge maps that rotate coordinates by a quarter turn. These are deliberately experimental twisted atlas maps.
+- **Flat torus**: one rectangle, opposite edges glued. Warm heads run around the large circle; cool heads run through the hole.
+- **Square tube torus**: four rectangular side charts, like a cuboid bent into a ring and glued end-to-end.
+- **Square tube 90 / 180 / 270 twists**: the same square-section tube, but the end frame is rotated before gluing. This is the direct extension of the Cube Carillon cuboid idea.
 - **Icosahedral sphere**: a polyhedral sphere approximation. Geodesics are straight inside triangular facets; curvature is concentrated at vertices.
 
 ## Not Yet Included
@@ -42,6 +43,6 @@ The file `src/atlas.js` is the seed of a generalized surface core:
 - `AtlasSurface`: chart collection plus edge transitions.
 - `Head`: minimal moving pickup state.
 - `stepHead()`: polygon chart stepping and edge transition handling.
-- surface builders for torus, twists, and icosahedral sphere.
+- surface builders for the flat torus, square-tube twists, and icosahedral sphere.
 
 This is intentionally standalone so the main Cube Carillon instrument stays stable while the topology experiments can become a second project.
