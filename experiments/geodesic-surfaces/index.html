@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Geodesic Surface Lab</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --panel: rgba(12, 16, 22, 0.82);
+        --line: rgba(180, 210, 230, 0.18);
+        --text: #dbe8ef;
+        --muted: #8ca1ad;
+        --accent: #6ee7c8;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #071013;
+        color: var(--text);
+        font-family: Avenir Next, Futura, Helvetica Neue, sans-serif;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      .panel {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        width: min(390px, calc(100vw - 32px));
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 9px;
+      }
+      label {
+        min-width: 58px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      select,
+      button {
+        height: 32px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font: inherit;
+      }
+      select {
+        flex: 1;
+        min-width: 0;
+        padding: 0 8px;
+      }
+      button {
+        padding: 0 10px;
+        cursor: pointer;
+      }
+      button.on {
+        border-color: rgba(110, 231, 200, 0.65);
+        color: var(--accent);
+      }
+      .readout {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 5px;
+        margin-top: 10px;
+      }
+      .swatch {
+        height: 18px;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+      }
+      .hud {
+        position: fixed;
+        right: 16px;
+        bottom: 14px;
+        color: rgba(219, 232, 239, 0.72);
+        font-size: 12px;
+        line-height: 1.5;
+        text-align: right;
+        pointer-events: none;
+      }
+      .hud b {
+        color: #b7e6ff;
+      }
+      @media (max-width: 680px) {
+        .panel {
+          left: 10px;
+          top: 10px;
+          width: calc(100vw - 20px);
+          box-sizing: border-box;
+        }
+        .hud {
+          display: none;
+        }
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <section class="panel">
+      <h1>Geodesic Surface Lab</h1>
+      <div class="row">
+        <label for="surface">Surface</label>
+        <select id="surface"></select>
+      </div>
+      <div class="row">
+        <button id="run" class="on">pause</button>
+        <button id="reset">reset heads</button>
+        <button id="sound">sound on</button>
+        <button id="collide" class="on">collide</button>
+      </div>
+      <div id="readout" class="readout"></div>
+      <div id="swatches" class="swatches"></div>
+    </section>
+    <div class="hud">
+      <b>drag</b> orbit · <b>wheel</b> zoom · heads read procedural colour fields<br />
+      torus/Mobius/twists use explicit atlas edge maps · sphere is an icosahedral polyhedron
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
