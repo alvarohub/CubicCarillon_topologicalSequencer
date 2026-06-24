@@ -220,7 +220,7 @@ export class UIPanel {
     if (!outs.length) {
       const err = this.midi._error || '';
       const label = err.toLowerCase().includes('not supported')
-        ? '⚠ Web MIDI unavailable — Safari/iOS does not support the Web MIDI API. Use AUM\'s built-in MIDI routing or try a Chromium-based browser on macOS.'
+        ? '⚠ Web MIDI unavailable — Safari does not support the Web MIDI API. On iPad/iPhone, use AUM (AudioBus Multitrack) for MIDI routing. On macOS, try a Chromium-based browser (Chrome/Edge).'
         : '— no devices —';
       this.midiSel.appendChild(option(label, ''));
       return;
