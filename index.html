@@ -21,21 +21,6 @@
         position: fixed;
         inset: 0;
       }
-      #hud {
-        position: fixed;
-        left: 14px;
-        bottom: 12px;
-        font-size: 12px;
-        line-height: 1.5;
-        opacity: 0.8;
-        pointer-events: none;
-      }
-      #hud b {
-        color: #88aadd;
-      }
-      #status {
-        color: #5dff9b;
-      }
       #overlay {
         position: fixed;
         inset: 0;
@@ -407,20 +392,6 @@
   </head>
   <body>
     <div id="app"></div>
-
-    <div id="hud">
-      <div>
-        <b>drag</b> rotate &nbsp;·&nbsp; <b>right-drag</b> pan &nbsp;·&nbsp; <b>wheel/pinch</b> zoom &nbsp;·&nbsp;
-        <b>click</b> head=pause head / cell=note &nbsp;·&nbsp; <b>hold a pad + drag ↑↓</b> velocity &nbsp;·&nbsp;
-        <b>right-click</b> head=instrument &nbsp;·&nbsp; phone: <b>hold head</b>=instrument
-      </div>
-      <div>
-        <b>space</b> pause &nbsp;·&nbsp; <b>m</b> step/continuous &nbsp;·&nbsp; <b>g</b> gravity &nbsp;·&nbsp;
-        <b>r</b> rail/derail &nbsp;·&nbsp; <b>a</b> align groups &nbsp;·&nbsp; <b>+ -</b> BPM &nbsp;·&nbsp;
-        <b>[ ]</b> opacity &nbsp;·&nbsp; <b>p</b> parameters &nbsp;·&nbsp; phone: <b>tilt</b>
-      </div>
-      <div id="status">running</div>
-    </div>
 
     <div id="overlay">
       <div class="card">

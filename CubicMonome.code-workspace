@@ -3,6 +3,9 @@
     {
       "path": ".",
     },
+    {
+      "path": "firmware/cores3_cube_link",
+    },
   ],
   "settings": {
     "MicroPython.executeButton": [
@@ -22,6 +25,7 @@
         "command": "extension.execute",
         "priority": 4
       }
-    ]
+    ],
+    "liveServer.settings.multiRootWorkspaceName": "CubicMonome_topologicalSequencer",
   },
 }

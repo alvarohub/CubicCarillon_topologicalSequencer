@@ -109,6 +109,19 @@ export class Surface {
   }
 
   _buildGluings() {
+    // -----------------------------------------------------------------------
+    // Map-construction pipeline (pure geometry -> atlas transition maps):
+    //   1) For each directed edge of each face, compute its TWO 3D endpoints.
+    //   2) Match edges by 3D segment equality (order-independent) to find the
+    //      adjacent face across that edge.
+    //   3) For each matched pair, compute the affine chart-transition map
+    //      p_B = M p_A + t that carries local coords from face A to face B.
+    //
+    // The result is stored in face.edges[edge] and later consumed by Ball.step:
+    // both position and velocity are transformed by the same M (position also
+    // gets +t), which is exactly what keeps geodesics straight when unfolded.
+    // -----------------------------------------------------------------------
+
     // Precompute, for every (face, edge), the two shared corners in 3D.
     const edge3D = []; // edge3D[faceIndex][edgeIndex] = [P0, P1]
     this.faces.forEach((f, fi) => {
@@ -117,6 +130,7 @@ export class Surface {
     });
 
     const same = (P, Q) => len3(sub3(P, Q)) < MATCH_EPS;
+    // Segment comparison is undirected: [P0,P1] and [P1,P0] are the same edge.
     const edgesMatch = (e1, e2) =>
       (same(e1[0], e2[0]) && same(e1[1], e2[1])) || (same(e1[0], e2[1]) && same(e1[1], e2[0]));
 
@@ -150,28 +164,52 @@ export class Surface {
   // face B's local coords across their shared edge, choosing the orientation
   // that carries "just outside A" to "just inside B".
   _transition(A, i, B, bj, sharedPts, half) {
+    // We know A.edge(i) and B.edge(bj) are the same 3D segment. What we need is
+    // an affine map in local 2D coordinates:
+    //   p_B = M p_A + t
+    // where M is orthonormal (rotation/reflection) and t is translation.
+    //
+    // Why affine? Each face is a flat chart with Euclidean coordinates.
+    // Crossing an edge is just changing chart coordinates for the same point.
+
     const [P0, P1] = sharedPts;
+    // Express the SAME two 3D points in each face's local frame.
     const aA = this.to2D(A, P0),
       bA = this.to2D(A, P1);
     const aB = this.to2D(B, P0),
       bB = this.to2D(B, P1);
 
-    // orthonormal edge frames in each face's local plane
+    // Build an orthonormal edge frame per face:
+    //   e1 = unit tangent along the shared edge
+    //   e2 = +90deg in-plane normal to e1
+    // These are local 2D vectors inside each chart.
     const e1A = norm2([bA[0] - aA[0], bA[1] - aA[1]]);
     const e2A = [-e1A[1], e1A[0]];
     const e1B = norm2([bB[0] - aB[0], bB[1] - aB[1]]);
     const e2B = [-e1B[1], e1B[0]];
 
+    // Change-of-basis logic:
+    //   - Tinv maps A-local coords into A-edge-frame coords.
+    //   - Multiplying by B edge-frame columns maps edge-frame coords into B-local.
+    //
+    // There are exactly two geometric possibilities across a shared edge:
+    //   Mpres: orientation-preserving
+    //   Mrev : orientation-reversing (flip across edge frame's second axis)
     const Tinv = transpose2(colsToMat2(e1A, e2A)); // inverse of A edge frame
     const Mpres = matMul2(colsToMat2(e1B, e2B), Tinv); // orientation-preserving
     const Mrev = matMul2(colsToMat2(e1B, [-e2B[0], -e2B[1]]), Tinv); // reflected
 
+    // Once M is picked, translation is fixed by mapping one anchor point.
+    // We use P0's 2D coordinates: M*aA + t = aB  =>  t = aB - M*aA.
     const tFor = (M) => [aB[0] - apply2(M, aA)[0], aB[1] - apply2(M, aA)[1]];
     const tPres = tFor(Mpres),
       tRev = tFor(Mrev);
 
-    // interior test: a point just OUTSIDE A beyond the edge midpoint should map
-    // to just INSIDE B beyond the same edge.
+    // Disambiguation test:
+    // both candidates map the shared segment onto itself, but only ONE gluing
+    // should send "outside A" to "inside B". We test with a probe point:
+    //   probe = midpoint(edge in A) + small outward offset in A
+    // Then choose whichever candidate lands deeper toward B's interior.
     const midA = [(aA[0] + bA[0]) / 2, (aA[1] + bA[1]) / 2];
     const midB = [(aB[0] + bB[0]) / 2, (aB[1] + bB[1]) / 2];
     const outA = norm2(midA); // away from A centre (origin)
@@ -186,6 +224,9 @@ export class Surface {
     const useRev = score(Mrev, tRev) > score(Mpres, tPres);
     const M = useRev ? Mrev : Mpres;
     const t = useRev ? tRev : tPres;
+    // Stored transition object consumed directly by Ball.step at runtime.
+    // toEdge is kept for diagnostics / protocol export; the simulation uses
+    // toFaceId + (M,t) to continue motion exactly across the seam.
     return { toFaceId: B.id, toEdge: bj, M, t };
   }
 }
@@ -228,6 +269,9 @@ function applyCuboidDims(faces, div, fit) {
     Z: Math.max(1, Math.min(16, Math.round(div.Z))),
   };
   const maxN = Math.max(N.X, N.Y, N.Z);
+  // All chart-cell sizes must stay equal (square cells on every face), so
+  // there is a single `unit` shared by all axes. The largest axis is scaled to
+  // `fit`, the others follow proportionally.
   const unit = fit / maxN; // square cell size, same on every face
   const L = { X: N.X * unit, Y: N.Y * unit, Z: N.Z * unit };
   for (const f of faces) {

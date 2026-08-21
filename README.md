@@ -21,6 +21,14 @@ and open it on the phone; iOS asks for motion permission via the Start button.
 Controls: **drag** = rotate cube · **space** = pause · **g** = toggle gravity ·
 **m** = snap/unsnap step display · phone = **tilt to roll**.
 
+Optional Wi-Fi bridge to a standalone CoreS3 cube controller:
+
+```sh
+http://localhost:8001/?cubeWs=ws://192.168.1.77:8787
+```
+
+Without `cubeWs`, the app remains fully standalone (no network dependency).
+
 ## Architecture (engine + adapters)
 
 The point of the rewrite is a clean split, so the simulation can run unchanged

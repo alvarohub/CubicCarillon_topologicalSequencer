@@ -148,8 +148,16 @@ export class Ball {
 
       events.push({ type: 'edge', faceFrom: face.id, edge: hitEdge, toFace: e.toFaceId, ball: this });
 
-      // apply transition isometry to position and velocity, then clamp to the
-      // NEIGHBOUR face's own (possibly different) rectangular bounds
+      // Apply the atlas transition map precomputed in Surface._transition:
+      //   p' = M p + t   (position changes chart and shifts origin)
+      //   v' = M v       (velocity changes chart, no translation)
+      //
+      // Using the SAME M for both position and velocity is the key geometric
+      // invariant: in the unfolded picture, a straight geodesic remains straight
+      // after crossing a seam.
+      //
+      // Final clamp guards against tiny floating-point overshoot exactly at the
+      // border (especially after many crossings on rectangular faces).
       const dst = surface.faceById(e.toFaceId);
       const nx = e.M.a * this.x + e.M.b * this.y + e.t[0];
       const ny = e.M.c * this.x + e.M.d * this.y + e.t[1];

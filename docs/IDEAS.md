@@ -481,3 +481,50 @@ quantisation is what removes the doubling (co-beat enter-notes coincide as a
 chord instead of flamming). Collisions are an independent, toggleable layer
 (`flags.collisionSound`). If strict replace is ever wanted, it's a localised
 follow-up (tractable only in step mode, where both heads hop in the same frame).
+
+## 20. ⭐ Surface Lab: arbitrary texture-reading + discrete piano-roll layer
+
+**Status: active experiment.** The geodesic surface lab revealed a second idea
+that is interesting on its own: a head following a geodesic can read an
+**arbitrary texture / colour field / engraving** on the surface, not just a grid
+of binary notes. This is the "phonograph needle on a curved score" version of
+the instrument. Keep exploring it as a parallel mode, not as a throwaway demo:
+
+- the texture is a continuous score; the head samples whatever lies under it;
+- different trajectories read the same surface differently;
+- colour fields can map to pitch, timbre, density, or synthesis parameters;
+- the score can be procedural, painted, imported as an image, or accumulated as a
+  trail from previous passes.
+
+But the lab also needs a **discrete piano-roll mode**: clickable, armable cells
+on the visible grid, just like Cube Carillon. The conceptual split should be:
+
+- **continuous layer** = texture/field sampling;
+- **discrete layer** = `armed` grid cells, read as note triggers;
+- a surface can run either layer, or both at once.
+
+Implementation note: for polyhedral surfaces such as the icosahedron, the
+clickable score can be per-facet triangular cells/barycentric bins. For the flat
+torus and square-tube surfaces, the score should live in the **atlas grid** that
+is already drawn on top of the curved visual embedding. Clicking should raycast
+the visible surface, convert the hit back to chart coordinates `(faceId, x, y)`,
+then quantize to `(i, j)` in the face's regular grid. This keeps the piano roll
+intrinsic to the atlas, even when the display is a donut/tube in 3-D.
+
+This is not mathematically hard; the main work is UI plumbing: raycast -> inverse
+surface map -> cell key -> draw armed pads -> trigger notes when a head enters a
+new armed cell.
+
+**Current experimental choice (July 2026): notes are triggers for the head.** In
+the surface lab, an armed grid cell does not yet store its own pitch. It is a
+binary piano-roll trigger: when a head enters it, the head's own assigned voice
+sounds. This keeps the model close to a music box / drum machine, where the
+surface says "play now" and the moving head is the instrument. Independent
+per-cell pitch editing belongs to the later "painted texture / engraved score"
+branch.
+
+**Texture-as-scale idea.** The procedural colour field is still worth keeping as
+a parallel score layer. It could become a saved/imported "scale texture" or
+timbre texture that different head bands read differently. That gives a way to
+simulate scale-loaded sequencer bands without giving up the organic painterly
+surface-score direction.

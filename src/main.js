@@ -8,6 +8,7 @@ import { Band } from './core/scales.js';
 import { AudioOut } from './io/audio.js';
 import { Controls } from './io/controls.js';
 import { MidiOut } from './io/midi.js';
+import { CubeLinkClient } from './io/cubeLink.js';
 import { UIPanel } from './io/ui.js';
 import { View3D } from './view/view3d.js';
 
@@ -265,6 +266,18 @@ const ui = new UIPanel({
   updateTrackHome,
 });
 
+// Optional Wi-Fi bridge to a standalone cube controller (CoreS3). This is
+// strictly additive: if no URL is provided, the app stays fully local.
+const cubeLink = new CubeLinkClient({ engine, sequencer, view, statusFn: setStatus });
+const cubeWsUrl = new URLSearchParams(location.search).get('cubeWs');
+if (cubeWsUrl) {
+  try {
+    cubeLink.connect(cubeWsUrl);
+  } catch (err) {
+    console.warn('Invalid cubeWs URL:', err);
+  }
+}
+
 // Boot look & feel — load the starting parameters from presets/default.json
 // (the "both" surface, a darker acrylic, a brighter ambient, the firefly heads,
 // the 16+16+16 track stack). Loading a file means the defaults can be tweaked
@@ -305,7 +318,7 @@ fetch(new URL('../presets/default.json', import.meta.url))
 // Optional debug hook (only when ?debug is in the URL): exposes the live objects
 // on window for inspection/automated UI tests. Never active in normal use.
 if (location.search.includes('debug')) {
-  window.__cube = { engine, view, sequencer, balls, controls, midi, ui, flags };
+  window.__cube = { engine, view, sequencer, balls, controls, midi, ui, flags, cubeLink };
 }
 
 // ---- loop ----
@@ -382,6 +395,9 @@ function frame(now) {
 
     view.sync(now);
     view.render();
+
+    // Opportunistic sync (throttled internally); no-op when disconnected.
+    cubeLink.tick(now);
   } catch (err) {
     rememberRuntimeError('frame', err);
   }

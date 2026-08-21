@@ -162,6 +162,20 @@ Class:
 
 MIDI routing is instrument-based. Melodic instruments map to melodic channels; drum instruments map to the GM drum channel with drum-note selection.
 
+### `src/io/cubeLink.js`
+
+Optional WebSocket bridge for syncing with a standalone CoreS3 cube controller.
+
+Capabilities:
+
+- optional connect/disconnect (no dependency for normal local use)
+- transport sync (`bpm`, pause, rail, gravity, mode)
+- score sync (replace/clear/random)
+- snapshot exchange and heartbeat
+
+The adapter must not be a hard runtime dependency: when disconnected, the app
+continues local simulation/audio unchanged.
+
 ### `src/io/controls.js`
 
 Browser input adapter.

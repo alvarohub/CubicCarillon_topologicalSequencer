@@ -43,34 +43,50 @@ export class Controls {
 
   _wireKeyboard() {
     window.addEventListener('keydown', (e) => {
+      const target = e.target;
+      const tag = (target && target.tagName) || '';
+      const inField = /INPUT|SELECT|TEXTAREA/.test(tag) || (target && target.isContentEditable);
+      // Never steal keys from focused form fields (BPM numeric input, selects,
+      // text boxes...). Let native editing happen without shortcut side-effects.
+      if (inField) return;
+
+      let handled = false;
       if (e.code === 'Space') {
         e.preventDefault();
         this.engine.paused = !this.engine.paused;
         this.statusFn(this.engine.paused ? 'paused' : 'running');
+        handled = true;
       } else if (e.key === 'g' || e.key === 'G') {
         this.engine.gravityStrength = this.engine.gravityStrength > 0 ? 0 : 2.5;
         this.statusFn(this.engine.gravityStrength > 0 ? 'gravity ON' : 'gravity OFF');
         this._requestOrientation(); // no-op if already wired; requests iOS permission if needed
+        handled = true;
       } else if (e.key === 'm' || e.key === 'M') {
         this.engine.stepMode = !this.engine.stepMode;
         this.statusFn(this.engine.stepMode ? `step mode · ${this.engine.bpm} BPM` : 'continuous mode');
+        handled = true;
       } else if (e.key === 'r' || e.key === 'R') {
         this.engine.railed = !this.engine.railed;
         this.statusFn(this.engine.railed ? 'railed (on tracks)' : 'derailed (free)');
+        handled = true;
       } else if (e.key === 'a' || e.key === 'A') {
         for (const k of ['X', 'Y', 'Z']) this.engine.alignGroup(k);
         this.statusFn('groups aligned to their latest tracks');
+        handled = true;
       } else if (e.key === '+' || e.key === '=') {
         this.engine.bpm = Math.min(400, this.engine.bpm + 5);
         this.statusFn(`${this.engine.bpm} BPM`);
+        handled = true;
       } else if (e.key === '-' || e.key === '_') {
         this.engine.bpm = Math.max(20, this.engine.bpm - 5);
         this.statusFn(`${this.engine.bpm} BPM`);
+        handled = true;
       } else if (e.key === '[' || e.key === ']') {
         const v = this.view.adjustCubeOpacity(e.key === ']' ? 0.08 : -0.08);
         this.statusFn(`cube opacity ${v.toFixed(2)}`);
+        handled = true;
       }
-      this._notify();
+      if (handled) this._notify();
     });
   }
 
