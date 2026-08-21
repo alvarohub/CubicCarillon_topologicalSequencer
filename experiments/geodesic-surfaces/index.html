@@ -42,11 +42,28 @@
         backdrop-filter: blur(10px);
         box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
       }
+      .panel.collapsed {
+        width: auto;
+      }
+      .panel.collapsed .panel-body {
+        display: none;
+      }
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
       h1 {
-        margin: 0 0 10px;
+        margin: 0;
         font-size: 18px;
         font-weight: 650;
         letter-spacing: 0;
+      }
+      #collapse {
+        width: 34px;
+        padding: 0;
+        flex: 0 0 auto;
       }
       .row {
         display: flex;
@@ -60,7 +77,9 @@
         font-size: 12px;
       }
       select,
-      button {
+      button,
+      input[type='range'],
+      input[type='color'] {
         height: 32px;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -81,6 +100,19 @@
         border-color: rgba(110, 231, 200, 0.65);
         color: var(--accent);
       }
+      label.mini {
+        min-width: auto;
+      }
+      input[type='range'] {
+        flex: 1;
+        min-width: 80px;
+        accent-color: var(--accent);
+      }
+      input[type='color'] {
+        width: 44px;
+        padding: 2px;
+        cursor: pointer;
+      }
       .readout {
         margin-top: 12px;
         padding-top: 10px;
@@ -91,7 +123,7 @@
       }
       .swatches {
         display: grid;
-        grid-template-columns: repeat(6, 1fr);
+        grid-template-columns: repeat(auto-fill, minmax(18px, 1fr));
         gap: 5px;
         margin-top: 10px;
       }
@@ -99,6 +131,28 @@
         height: 18px;
         border-radius: 4px;
         border: 1px solid rgba(255, 255, 255, 0.18);
+      }
+      .track-list {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 4px;
+        max-height: 230px;
+        overflow: auto;
+      }
+      .track-row {
+        display: grid;
+        grid-template-columns: 42px 34px 1fr 70px;
+        gap: 6px;
+        align-items: center;
+        font-size: 12px;
+      }
+      .track-row button {
+        height: 26px;
+        padding: 0 6px;
+      }
+      .track-name {
+        color: var(--muted);
       }
       .hud {
         position: fixed;
@@ -131,24 +185,43 @@
   </head>
   <body>
     <div id="app"></div>
-    <section class="panel">
-      <h1>Geodesic Surface Lab</h1>
-      <div class="row">
-        <label for="surface">Surface</label>
-        <select id="surface"></select>
+    <section id="panel" class="panel">
+      <div class="panel-head">
+        <h1>Geodesic Surface Lab</h1>
+        <button id="collapse" title="collapse panel">−</button>
       </div>
-      <div class="row">
-        <button id="run" class="on">pause</button>
-        <button id="reset">reset heads</button>
-        <button id="sound">sound on</button>
-        <button id="collide" class="on">collide</button>
+      <div class="panel-body">
+        <div class="row">
+          <label for="surface">Surface</label>
+          <select id="surface"></select>
+        </div>
+        <div class="row">
+          <button id="run" class="on">pause</button>
+          <button id="reset">reset heads</button>
+          <button id="sound">sound on</button>
+          <button id="collide" class="on">collide</button>
+        </div>
+        <div class="row">
+          <label>View</label>
+          <button id="structure" class="on">object on</button>
+          <label for="surfaceAlpha" class="mini">surface</label>
+          <input id="surfaceAlpha" type="range" min="0" max="1" step="0.01" value="0.08" />
+        </div>
+        <div class="row">
+          <label>Notes</label>
+          <label for="armedColor" class="mini">armed</label>
+          <input id="armedColor" type="color" value="#fff3a8" />
+          <label for="unarmedColor" class="mini">off</label>
+          <input id="unarmedColor" type="color" value="#ffffff" />
+        </div>
+        <div id="readout" class="readout"></div>
+        <div id="swatches" class="swatches"></div>
+        <div id="tracks" class="track-list"></div>
       </div>
-      <div id="readout" class="readout"></div>
-      <div id="swatches" class="swatches"></div>
     </section>
     <div class="hud">
-      <b>drag</b> orbit · <b>wheel</b> zoom · heads read procedural colour fields<br />
-      torus and square tube use explicit atlas edge maps · warm/cool heads show the two track families
+      <b>click</b> grid cells to arm notes · <b>drag</b> orbit · <b>wheel</b> zoom<br />
+      heads read procedural colour fields, plus armed piano-roll cells
     </div>
     <script type="module" src="./src/main.js"></script>
   </body>

@@ -14,6 +14,12 @@ Open:
 http://localhost:8001/experiments/geodesic-surfaces/
 ```
 
+Check atlas edge maps:
+
+```sh
+node experiments/geodesic-surfaces/atlas-selftest.mjs
+```
+
 ## What This Proves
 
 The lab separates the idea of a reading head from the Cube Carillon cuboid renderer.
@@ -22,7 +28,9 @@ The lab separates the idea of a reading head from the Cube Carillon cuboid rende
 - Edge crossings use explicit atlas transition maps.
 - Square grids are drawn as explicit surface curves, so the visible tracks match the chart logic.
 - The head samples a procedural colour field on the surface.
+- Clickable atlas-grid cells form a discrete piano-roll layer on top of that field.
 - The sampled colour is mapped to pitch and head colour.
+- Armed cells trigger discrete notes when a head enters them.
 - Nearby heads create collision ticks.
 
 ## Included Surfaces

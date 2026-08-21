@@ -60,7 +60,7 @@ export class AtlasSurface {
       remaining -= hit.t;
 
       const edge = face.edges[hit.edge];
-      if (!edge?.toFaceId) {
+      if (!edge || edge.toFaceId == null) {
         const a = face.verts2[hit.edge];
         const b = face.verts2[(hit.edge + 1) % face.verts2.length];
         const tangent = norm2(sub2(b, a));
@@ -112,11 +112,12 @@ export function createFlatTorus() {
     name: 'Flat torus',
     kind: 'torus',
     faces: [face],
-    description: 'A rectangle tiled by square cells, with opposite edges glued. Warm heads run around the large circle; cool heads run through the hole.',
-    grid: { u: 14, v: 8 },
+    description:
+      'A rectangle tiled by square cells, with opposite edges glued. Warm heads run around the large circle; cool heads run through the hole.',
+    grid: { u: 16, v: 12 },
     trackInfo: '2 track families: around the large circle and through the hole.',
     embed: (head) => torusEmbed(head.x, head.y, width, height),
-    sample: (head) => sampleField(head.x, head.y, width, height, head.faceId, 14, 8),
+    sample: (head) => sampleField(head.x, head.y, width, height, head.faceId, 16, 12),
   });
 }
 
@@ -145,7 +146,8 @@ export function createSquareTube(twistQuarter = 0) {
     side,
     twistQuarter,
     grid: { u: 16, v: 4 },
-    trackInfo: '4 side charts with square cells; warm heads loop lengthwise, cool heads loop around the square cross-section.',
+    trackInfo:
+      '4 side charts with square cells; warm heads loop lengthwise, cool heads loop around the square cross-section.',
     description:
       angle === 0
         ? 'A cuboid bent into a ring: four rectangular side charts, with the two ends glued without rotation.'
@@ -345,7 +347,7 @@ function buildComputedTransitions(faces) {
           const B0 = B.verts3[j];
           const B1 = B.verts3[(j + 1) % B.verts3.length];
           if ((same(A0, B0) && same(A1, B1)) || (same(A0, B1) && same(A1, B0))) {
-            A.edges[i] = transition(A, i, B, j);
+            A.edges[i] = transition(A, i, B, j, [A0, A1]);
           }
         }
       }
@@ -353,11 +355,17 @@ function buildComputedTransitions(faces) {
   }
 }
 
-function transition(A, edgeA, B, edgeB) {
-  const aA = A.verts2[edgeA];
-  const bA = A.verts2[(edgeA + 1) % A.verts2.length];
-  const aB = B.verts2[edgeB];
-  const bB = B.verts2[(edgeB + 1) % B.verts2.length];
+function to2D(face, p) {
+  const d = sub3(p, face.C);
+  return [dot3(d, face.u), dot3(d, face.v)];
+}
+
+function transition(A, edgeA, B, edgeB, sharedPts) {
+  const [P0, P1] = sharedPts;
+  const aA = to2D(A, P0);
+  const bA = to2D(A, P1);
+  const aB = to2D(B, P0);
+  const bB = to2D(B, P1);
   const e1A = norm2(sub2(bA, aA));
   const e2A = [-e1A[1], e1A[0]];
   const e1B = norm2(sub2(bB, aB));
@@ -370,10 +378,12 @@ function transition(A, edgeA, B, edgeB) {
   const tRev = tFor(Mrev);
   const midA = [(aA[0] + bA[0]) / 2, (aA[1] + bA[1]) / 2];
   const midB = [(aB[0] + bB[0]) / 2, (aB[1] + bB[1]) / 2];
-  const probe = [midA[0] + 0.001 * midA[0], midA[1] + 0.001 * midA[1]];
+  const outA = norm2(midA);
+  const inB = norm2([-midB[0], -midB[1]]);
+  const probe = [midA[0] + 0.001 * outA[0], midA[1] + 0.001 * outA[1]];
   const score = (M, t) => {
     const p = apply2(M, probe);
-    return -(p[0] + t[0] - midB[0]) * midB[0] - (p[1] + t[1] - midB[1]) * midB[1];
+    return (p[0] + t[0] - midB[0]) * inB[0] + (p[1] + t[1] - midB[1]) * inB[1];
   };
   const useRev = score(Mrev, tRev) > score(Mpres, tPres);
   return { toFaceId: B.id, toEdge: edgeB, M: useRev ? Mrev : Mpres, t: useRev ? tRev : tPres };
