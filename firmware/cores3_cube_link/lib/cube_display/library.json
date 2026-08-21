@@ -1,0 +1,11 @@
+{
+  "name": "cube_display",
+  "version": "0.1.0",
+  "description": "Reusable logical display layers, cube LED mapping, and NeoPixel composition for manifold-style LED displays.",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": {
+    "adafruit/Adafruit NeoPixel": "^1.12.3",
+    "adafruit/Adafruit GFX Library": "^1.12.1"
+  }
+}
