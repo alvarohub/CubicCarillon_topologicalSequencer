@@ -24,8 +24,8 @@
                 "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src",
                 "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/Ethernet/src",
                 "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src",
-                "/Users/alvarocassinelli/Library/CloudStorage/GoogleDrive-cassinelli.alvaro@gmail.com/My Drive/AM_LAB/PROJECTS/ALVARO_PROJECTS/CubeCarillon_3dSequencer/CubicMonome_topologicalSequencer/firmware/cores3_cube_link/.pio/libdeps/cores3/M5GFX/src",
                 "/Users/alvarocassinelli/Library/CloudStorage/GoogleDrive-cassinelli.alvaro@gmail.com/My Drive/AM_LAB/PROJECTS/ALVARO_PROJECTS/CubeCarillon_3dSequencer/CubicMonome_topologicalSequencer/firmware/cores3_cube_link/.pio/libdeps/cores3/M5Unified/src",
+                "/Users/alvarocassinelli/Library/CloudStorage/GoogleDrive-cassinelli.alvaro@gmail.com/My Drive/AM_LAB/PROJECTS/ALVARO_PROJECTS/CubeCarillon_3dSequencer/CubicMonome_topologicalSequencer/firmware/cores3_cube_link/.pio/libdeps/cores3/M5GFX/src",
                 "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src",
                 "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src",
                 "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/include/newlib/platform_include",
@@ -272,8 +272,8 @@
                     "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src",
                     "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/Ethernet/src",
                     "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src",
-                    "/Users/alvarocassinelli/Library/CloudStorage/GoogleDrive-cassinelli.alvaro@gmail.com/My Drive/AM_LAB/PROJECTS/ALVARO_PROJECTS/CubeCarillon_3dSequencer/CubicMonome_topologicalSequencer/firmware/cores3_cube_link/.pio/libdeps/cores3/M5GFX/src",
                     "/Users/alvarocassinelli/Library/CloudStorage/GoogleDrive-cassinelli.alvaro@gmail.com/My Drive/AM_LAB/PROJECTS/ALVARO_PROJECTS/CubeCarillon_3dSequencer/CubicMonome_topologicalSequencer/firmware/cores3_cube_link/.pio/libdeps/cores3/M5Unified/src",
+                    "/Users/alvarocassinelli/Library/CloudStorage/GoogleDrive-cassinelli.alvaro@gmail.com/My Drive/AM_LAB/PROJECTS/ALVARO_PROJECTS/CubeCarillon_3dSequencer/CubicMonome_topologicalSequencer/firmware/cores3_cube_link/.pio/libdeps/cores3/M5GFX/src",
                     "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src",
                     "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src",
                     "/Users/alvarocassinelli/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/include/newlib/platform_include",
@@ -503,7 +503,7 @@
                 ]
             },
             "defines": [
-                "PLATFORMIO=60119",
+                "PLATFORMIO=60200",
                 "ARDUINO_M5STACK_CORES3",
                 "BOARD_HAS_PSRAM",
                 "ARDUINO_USB_MODE=1",
