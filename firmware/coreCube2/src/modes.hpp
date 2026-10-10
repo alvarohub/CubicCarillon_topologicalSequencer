@@ -89,6 +89,10 @@ inline bool select(State& state, Kind kind, const topo::Surface& surface) {
   if (kind >= Kind::Count) return false;
   state.active = kind;
   state.diagnostic.reset(surface);
+  // Scans start PAUSED so a human can step through them without racing the
+  // 80 ms auto-advance; the walker and the static axes views don't need it.
+  if (kind == Kind::SurfaceScan || kind == Kind::PanelScan || kind == Kind::RawChainScan)
+    state.diagnostic.paused = true;
   return true;
 }
 
@@ -96,13 +100,16 @@ inline bool select(State& state, Kind kind, const topo::Surface& surface) {
 // USB `step`): the topology walker moves a quarter second, every other
 // diagnostic advances one cell/emitter. `surfaceCells` = logical cells,
 // `physicalEmitters` = 384 on the CoreS3 cube.
-inline void step(State& state, unsigned surfaceCells, unsigned physicalEmitters) {
+inline void step(State& state, unsigned surfaceCells, unsigned physicalEmitters, int direction = +1) {
   if (state.active == Kind::TopologyWalk) {
-    state.diagnostic.walker.update(0.25);
+    state.diagnostic.walker.update(0.25);   // the walk has no index; it only goes forward
   } else {
     const unsigned limit = state.active == Kind::RawChainScan || state.active == Kind::PanelScan ?
                            physicalEmitters : surfaceCells;
-    if (limit) state.diagnostic.scanIndex = (state.diagnostic.scanIndex + 1) % limit;
+    if (limit) {
+      const unsigned delta = direction < 0 ? limit - 1 : 1;   // -1 step == +(limit-1) mod limit
+      state.diagnostic.scanIndex = (state.diagnostic.scanIndex + delta) % limit;
+    }
   }
 }
 

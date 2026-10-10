@@ -19,7 +19,9 @@
 //     a grid line counts as the cell AHEAD in the direction of travel (see
 //     forwardIndex below) — the convention that keeps event times and score
 //     hits exactly aligned with edge crossings.
-//   * Face numbering matches the web app: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z.
+//   * Face numbering follows the PHYSICAL cube (measured from the real object,
+//     Oct 2026): 0=+Z, 1=+Y, 2=-Z, 3=-Y, 4=+X, 5=-X. This DIFFERS from the web
+//     app's 0=+X..5=-Z; the gluings below are generated for the real object.
 //
 // WHY THE C++ STANDARD LIBRARY?
 //   Everything under src/core/ also compiles on a normal PC (the native unit
@@ -172,10 +174,11 @@ struct Surface {
 
 // ---------------------------------------------------------------------------
 // cubeSurface()
-//   The 8x8 cube: 6 faces, 4 transitions each. The numbers below were
-//   extracted once from the geometry-derived JavaScript implementation
-//   (repo src/core/surface.js, buildCube) and are verified against it on every
-//   test run by test/conformance.mjs — they are data, not derived here.
+//   The 8x8 cube: 6 faces, 4 transitions each. The numbers below are GENERATED
+//   (not hand-typed) from the physical cube's measured face frames by
+//   experiments/geodesic-surfaces/gen_physical_gluings.mjs, which reuses the
+//   geometry-derived gluing math in src/core/surface.js; test/conformance.mjs
+//   re-checks them against that generator on every run — they are data.
 //
 //   Table entry: { toFace, xx, xy, yx, yy, tx, ty }
 //   where tx/ty use the JavaScript convention (its chart spans -1..+1, so one
@@ -188,12 +191,12 @@ struct Surface {
 // ---------------------------------------------------------------------------
 inline Surface cubeSurface(uint8_t side = 8) {
   const int8_t gluings[6][4][7] = {
-    {{2,0,1,-1,0,0,2}, {4,0,-1,1,0,2,0}, {3,1,0,0,1,2,0}, {5,1,0,0,1,0,2}},
-    {{4,1,0,0,1,-2,0}, {2,1,0,0,1,0,-2}, {5,0,1,-1,0,0,-2}, {3,0,-1,1,0,-2,0}},
-    {{4,0,1,-1,0,0,2}, {0,0,-1,1,0,2,0}, {5,1,0,0,1,2,0}, {1,1,0,0,1,0,2}},
-    {{0,1,0,0,1,-2,0}, {4,1,0,0,1,0,-2}, {1,0,1,-1,0,0,-2}, {5,0,-1,1,0,-2,0}},
-    {{0,0,1,-1,0,0,2}, {2,0,-1,1,0,2,0}, {1,1,0,0,1,2,0}, {3,1,0,0,1,0,2}},
-    {{2,1,0,0,1,-2,0}, {0,1,0,0,1,0,-2}, {3,0,1,-1,0,0,-2}, {1,0,-1,1,0,-2,0}}
+    {{4,0,1,-1,0,0,2}, {1,1,0,0,1,0,-2}, {5,0,-1,1,0,0,2}, {3,1,0,0,1,0,2}},      // face 0 (+Z)
+    {{4,-1,0,0,-1,2,0}, {2,1,0,0,1,0,-2}, {5,-1,0,0,-1,-2,0}, {0,1,0,0,1,0,2}},   // face 1 (+Y)
+    {{4,0,-1,1,0,0,-2}, {3,1,0,0,1,0,-2}, {5,0,1,-1,0,0,-2}, {1,1,0,0,1,0,2}},    // face 2 (-Z)
+    {{4,1,0,0,1,-2,0}, {0,1,0,0,1,0,-2}, {5,1,0,0,1,2,0}, {2,1,0,0,1,0,2}},       // face 3 (-Y)
+    {{1,-1,0,0,-1,2,0}, {0,0,-1,1,0,2,0}, {3,1,0,0,1,2,0}, {2,0,1,-1,0,2,0}},     // face 4 (+X)
+    {{3,1,0,0,1,-2,0}, {0,0,1,-1,0,-2,0}, {1,-1,0,0,-1,-2,0}, {2,0,-1,1,0,-2,0}}  // face 5 (-X)
   };
   Surface surface;
   if (side == 0 || side > maxSide) return surface;

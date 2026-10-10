@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { buildCube } from '../../../src/core/surface.js';
+import { buildPhysicalCube } from '../../../experiments/geodesic-surfaces/gen_physical_gluings.mjs';
 
 const binary = process.argv[2] ?? '/tmp/cubic-sequencer-v2-test';
 const actual = execFileSync(binary, ['--gluings'], { encoding: 'utf8' })
   .trim()
   .split('\n')
   .map((line) => line.trim().split(/\s+/).map(Number));
-const expected = buildCube(2).faces.flatMap((face) =>
+const expected = buildPhysicalCube().faces.flatMap((face) =>
   face.edges.map((edge) => [
     edge.toFaceId,
     edge.M.a,
@@ -29,4 +29,4 @@ expected.forEach((edge, index) => {
     );
   });
 });
-console.log('PASS: all 24 C++ cube gluings match the geometry-derived JavaScript transitions');
+console.log('PASS: all 24 C++ cube gluings match the physical-cube geometry generator');

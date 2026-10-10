@@ -28,6 +28,7 @@ enum class Kind : uint8_t {
   Tempo,           // set global BPM                      (value: 20..400)
   Mode,            // switch mode                         (index: Modes::Kind)
   DiagnosticStep,  // advance a diagnostic by one step    (—)
+  DiagnosticStepBack, // step a diagnostic BACK one step  (—)
   Randomize,       // write a pseudo-random score         (index: seed)
   Clear,           // clear the score                     (—)
   Reset,           // all readers back to home poses      (—)
@@ -88,7 +89,12 @@ inline Result apply(topo::Sequencer& instrument, Modes::State& modes, const Comm
     case Kind::DiagnosticStep:
       if (modes.active == Modes::Kind::Performance) return {};   // nothing to step
       modes.diagnostic.paused = true;                            // manual stepping implies pause
-      Modes::step(modes, instrument.surface().cellCount(), 384); // 384 = CoreS3 physical emitters
+      Modes::step(modes, instrument.surface().cellCount(), 384, +1); // 384 = CoreS3 physical emitters
+      return {true, false, false};
+    case Kind::DiagnosticStepBack:
+      if (modes.active == Modes::Kind::Performance) return {};
+      modes.diagnostic.paused = true;
+      Modes::step(modes, instrument.surface().cellCount(), 384, -1);
       return {true, false, false};
     case Kind::Randomize:
       instrument.randomize(command.index);   // index doubles as the seed
@@ -97,6 +103,13 @@ inline Result apply(topo::Sequencer& instrument, Modes::State& modes, const Comm
       instrument.clearScore();
       return {true, true, true};             // silence: notes were playing from it
     case Kind::Reset:
+      // In a diagnostic, Reset restarts the scan/walker at index 0 (and keeps
+      // it paused for inspection); in Performance it re-homes the readers.
+      if (modes.active != Modes::Kind::Performance) {
+        modes.diagnostic.reset(instrument.surface());
+        modes.diagnostic.paused = true;
+        return {true, false, false};
+      }
       instrument.resetPositions();
       return {true, true, false};
     case Kind::Brightness:

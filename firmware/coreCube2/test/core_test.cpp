@@ -133,7 +133,7 @@ int main(int argc, char**) {
   assert(reversal.addSequence(reader) == 0);
   reversal.setPaused(false);
   reversal.update(0.25);
-  assert(reversal.sequence(0).pose.face == 2);
+  assert(reversal.sequence(0).pose.face == 4);   // face 0 (+Z) +x edge -> face 4 (+X)
   assert(reversal.reverse(0));
   reversal.update(0.25);
   assert(reversal.sequence(0).pose.face == 0);

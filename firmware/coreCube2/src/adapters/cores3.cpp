@@ -70,8 +70,21 @@ static Adafruit_NeoMatrix matrix(8, 8,           // one panel: 8x8 pixels
     NEO_TILE_TOP + NEO_TILE_LEFT + NEO_TILE_ROWS + NEO_TILE_PROGRESSIVE,
     NEO_GRB + NEO_KHZ800);                        // WS2812B colour order + speed
 
+// Maps the GFX canvas (x,y) to the physical LED chain index using the
+// serpentine wiring confirmed on the hardware. Installed with
+// setRemapFunction() so EVERY GFX primitive (the scan dot now, but also lines,
+// circles and text later) routes through it. This REPLACES NeoMatrix's built-in
+// tile/zigzag math, which on these panels landed one LED further along the
+// strip (the measured "+1" / "pushed by one" artifact).
+static uint16_t remapToStrip(uint16_t x, uint16_t y) {
+  const uint16_t panel = x / 8;            // 8 panels laid along X in the canvas
+  const uint16_t col   = x % 8;
+  return panel * 64 + y * 8 + ((y & 1) ? (7 - col) : col);   // row-serpentine
+}
+
 void begin() {
   matrix.begin();
+  matrix.setRemapFunction(remapToStrip);   // our wiring, not NeoMatrix's flags
   matrix.setBrightness(12);       // quiet default; the UI changes this (cap 64)
   matrix.fillScreen(0);
   matrix.show();
@@ -86,6 +99,8 @@ void setBrightness(uint8_t value) { matrix.setBrightness(value); }
 //   nativePanels=true  — face N goes to panel slot N unrotated; the
 //                        PanelAxes/PanelScan diagnostics use this to study
 //                        the hardware without the mapping in the way
+// drawPixel does the drawing (so every GFX primitive stays available); the
+// (x,y) -> physical chain index step is handled by remapToStrip (see begin()).
 void present(const Presentation::SurfaceFrame& frame, const topo::Surface& surface, bool nativePanels) {
   matrix.fillScreen(0);
   // This adapter supports exactly the 8x8x6 cube; any other surface leaves
@@ -148,114 +163,221 @@ void silence() { M5.Speaker.stop(); }
 // ---------------------------------------------------------------------------
 namespace Controls {
 
-struct Button {
-  int x, y, width, height;   // screen rectangle, in pixels
-  const char* label;         // static label (button 3 swaps label in diagnostics)
+// A tappable rectangle tied to a semantic Action (layout is decoupled from
+// meaning, so the same STEP/PAUSE logic serves every page).
+enum Action : uint8_t {
+  ACT_NONE,
+  ACT_MODE_PREV, ACT_MODE_NEXT,
+  ACT_PAUSE, ACT_STEP_BACK, ACT_STEP_FWD, ACT_RESET,
+  ACT_RANDOM, ACT_CLEAR, ACT_BPM_DOWN, ACT_BPM_UP,
+  ACT_DIM, ACT_BRIGHT,
 };
 
-// The strip, top to bottom: mode arrows / transport+random / tempo /
-// brightness / score. See draw() for the on-screen layout.
-static constexpr Button buttons[] = {
-  {8,52,42,34,"<"}, {270,52,42,34,">"},
-  {8,94,148,34,"Run / Pause"}, {164,94,148,34,"Random"},
-  {8,136,70,34,"BPM-"}, {86,136,70,34,"BPM+"},
-  {164,136,70,34,"Dim"}, {242,136,70,34,"Bright"},
-  {8,178,148,34,"Clear score"}, {164,178,148,34,"Reset heads"}
+struct Button { int16_t x, y, w, h; const char* label; Action action; };
+
+// Mode selector: big "<  name  >" row, always visible at the top.
+static constexpr Button kModeRow[] = {
+  {  4, 30, 52, 44, "<", ACT_MODE_PREV},
+  {264, 30, 52, 44, ">", ACT_MODE_NEXT},
 };
 
-// Returns true when a command was produced. Sources are checked side buttons
-// first, then the touch screen; the first hit wins.
-bool poll(const topo::Sequencer& instrument, const Modes::State& modes, Commands::Command& command) {
+// Page shown for the SCAN diagnostics (Surface/Panel/Raw): pause + step + reset.
+static constexpr Button kScanButtons[] = {
+  {  8,  84, 150, 44, "RUN/STOP", ACT_PAUSE},
+  {162,  84, 150, 44, "RESET",    ACT_RESET},
+  {  8, 134, 150, 44, "< STEP",   ACT_STEP_BACK},
+  {162, 134, 150, 44, "STEP >",   ACT_STEP_FWD},
+  {  8, 184, 150, 44, "DIM",      ACT_DIM},
+  {162, 184, 150, 44, "BRIGHT",   ACT_BRIGHT},
+};
+
+// Page shown for Performance.
+static constexpr Button kPlayButtons[] = {
+  {  8,  84, 150, 44, "RUN/STOP", ACT_PAUSE},
+  {162,  84, 150, 44, "RANDOM",   ACT_RANDOM},
+  {  8, 134, 150, 44, "BPM -",    ACT_BPM_DOWN},
+  {162, 134, 150, 44, "BPM +",    ACT_BPM_UP},
+  {  8, 184, 150, 44, "CLEAR",    ACT_CLEAR},
+  {162, 184, 150, 44, "RESET",    ACT_RESET},
+};
+
+// Page shown for the static AXES views (Surface/Panel axes): brightness only.
+static constexpr Button kAxesButtons[] = {
+  {  8,  84, 150, 44, "DIM",    ACT_DIM},
+  {162,  84, 150, 44, "BRIGHT", ACT_BRIGHT},
+};
+
+// Page shown for the Topology walk (runs continuously): pause/step/reset.
+static constexpr Button kWalkButtons[] = {
+  {  8,  84, 150, 44, "RUN/STOP", ACT_PAUSE},
+  {162,  84, 150, 44, "STEP >",   ACT_STEP_FWD},
+  {  8, 134, 150, 44, "RESET",    ACT_RESET},
+  {162, 134, 150, 44, "DIM",      ACT_DIM},
+  {  8, 184, 150, 44, "BRIGHT",   ACT_BRIGHT},
+};
+
+// Which page (button set) the active mode shows.
+enum Group : uint8_t { G_PLAY, G_SCAN, G_AXES, G_WALK };
+static Group groupFor(Modes::Kind mode) {
+  switch (mode) {
+    case Modes::Kind::Performance:  return G_PLAY;
+    case Modes::Kind::SurfaceScan:
+    case Modes::Kind::PanelScan:
+    case Modes::Kind::RawChainScan: return G_SCAN;
+    case Modes::Kind::TopologyWalk: return G_WALK;
+    default:                        return G_AXES;   // Surface/Panel axes
+  }
+}
+
+static const Button* groupButtons(Group group, unsigned& count) {
+  switch (group) {
+    case G_PLAY: count = sizeof(kPlayButtons) / sizeof(Button); return kPlayButtons;
+    case G_SCAN: count = sizeof(kScanButtons) / sizeof(Button); return kScanButtons;
+    case G_WALK: count = sizeof(kWalkButtons) / sizeof(Button); return kWalkButtons;
+    default:     count = sizeof(kAxesButtons) / sizeof(Button); return kAxesButtons;
+  }
+}
+
+// Turn a semantic Action into a Command (validated later by Commands::apply).
+// Returns false for ACT_NONE.
+static bool actionToCommand(Action action, const topo::Sequencer& instrument,
+                            const Modes::State& modes, Commands::Command& command) {
+  using Commands::Kind;
   command = {};
-  int selected = -1;   // index into `buttons`; -1 = nothing pressed
+  switch (action) {
+    case ACT_MODE_PREV:
+    case ACT_MODE_NEXT:
+      command.kind = Kind::Mode;
+      command.index = (unsigned(modes.active) + unsigned(Modes::Kind::Count) +
+                       (action == ACT_MODE_NEXT ? 1 : -1)) % unsigned(Modes::Kind::Count);
+      return true;
+    case ACT_PAUSE:     command.kind = Kind::Toggle;             return true;
+    case ACT_STEP_FWD:  command.kind = Kind::DiagnosticStep;     return true;
+    case ACT_STEP_BACK: command.kind = Kind::DiagnosticStepBack; return true;
+    case ACT_RESET:     command.kind = Kind::Reset;              return true;
+    case ACT_RANDOM:    command.kind = Kind::Randomize; command.index = millis(); return true;
+    case ACT_CLEAR:     command.kind = Kind::Clear;              return true;
+    case ACT_BPM_DOWN:
+    case ACT_BPM_UP:
+      command.kind = Kind::Tempo;
+      command.value = std::max(20.0, std::min(400.0, instrument.tempo() + (action == ACT_BPM_UP ? 10 : -10)));
+      return true;
+    case ACT_DIM:
+    case ACT_BRIGHT:
+      command.kind = Kind::Brightness;
+      command.value = std::max(1, std::min(64, int(modes.brightness) + (action == ACT_BRIGHT ? 4 : -4)));
+      return true;
+    default: return false;
+  }
+}
 
-  if (M5.BtnA.wasClicked()) selected = 2;   // side buttons: run/pause...
-  if (M5.BtnB.wasClicked()) selected = 1;   // ...next mode...
-  if (M5.BtnC.wasClicked()) selected = 3;   // ...random / step
+// Produce at most one Command: hardware side buttons first, then a touch on
+// the mode row or the active page's buttons. The first hit wins.
+bool poll(const topo::Sequencer& instrument, const Modes::State& modes, Commands::Command& command) {
+  Action action = ACT_NONE;
+
+  if (M5.BtnA.wasClicked()) action = ACT_PAUSE;      // A = run/pause
+  if (M5.BtnB.wasClicked()) action = ACT_MODE_NEXT;  // B = next mode
+  if (M5.BtnC.wasClicked()) action = ACT_STEP_FWD;   // C = step forward
 
   if (M5.Touch.isEnabled() && M5.Touch.getCount()) {
     const auto touch = M5.Touch.getDetail();
     if (touch.wasClicked()) {
-      for (unsigned index = 0; index < sizeof(buttons) / sizeof(buttons[0]); ++index) {
-        const auto& button = buttons[index];
-        if (touch.x >= button.x && touch.x < button.x + button.width &&
-            touch.y >= button.y && touch.y < button.y + button.height) {
-          selected = index;
-        }
-      }
+      auto hit = [&](const Button& b) {
+        return touch.x >= b.x && touch.x < b.x + b.w && touch.y >= b.y && touch.y < b.y + b.h;
+      };
+      for (const auto& b : kModeRow) if (hit(b)) action = b.action;
+      unsigned count = 0;
+      const Button* set = groupButtons(groupFor(modes.active), count);
+      for (unsigned i = 0; i < count; ++i) if (hit(set[i])) action = set[i].action;
     }
   }
 
-  using Commands::Kind;
-  switch (selected) {
-    case 0: case 1:   // mode, wrapped in both directions
-      command.kind = Kind::Mode;
-      command.index = (unsigned(modes.active) + unsigned(Modes::Kind::Count) + (selected ? 1 : -1)) %
-                      unsigned(Modes::Kind::Count);
-      break;
-    case 2:   // transport in Performance, diagnostic pause elsewhere (see Commands::Toggle)
-      command.kind = Kind::Toggle;
-      break;
-    case 3:   // "Random" in Performance, "Step" in every diagnostic
-      command.kind = modes.active == Modes::Kind::Performance ? Kind::Randomize : Kind::DiagnosticStep;
-      command.index = millis();   // random seed: differs with every press
-      break;
-    case 4: case 5:   // tempo -10 / +10, clamped to the range the core accepts
-      command.kind = Kind::Tempo;
-      command.value = std::max(20.0, std::min(400.0, instrument.tempo() + (selected == 4 ? -10 : 10)));
-      break;
-    case 6: case 7:   // brightness -4 / +4, capped at 64 (electrical safety)
-      command.kind = Kind::Brightness;
-      command.value = std::max(1, std::min(64, int(modes.brightness) + (selected == 6 ? -4 : 4)));
-      break;
-    case 8: command.kind = Kind::Clear; break;
-    case 9: command.kind = Kind::Reset; break;
-    default: return false;   // nothing was pressed
-  }
-  return true;
+  return actionToCommand(action, instrument, modes, command);
 }
 
-// Repaint the status screen: header, live counters, mode name, the button
-// strip, and a footer with mapping state / brightness / overruns. Called
-// sparingly (controlsIntervalMs in main.cpp) — the LCD is slow.
+// Draw one big page button; `on` highlights it (used for the active PAUSE).
+static void drawButton(const Button& b, bool on) {
+  const uint16_t fill    = on ? M5.Display.color565(32, 96, 120) : M5.Display.color565(34, 38, 44);
+  const uint16_t outline = on ? TFT_CYAN : M5.Display.color565(95, 105, 120);
+  M5.Display.fillRoundRect(b.x, b.y, b.w, b.h, 5, fill);
+  M5.Display.drawRoundRect(b.x, b.y, b.w, b.h, 5, outline);
+  M5.Display.setTextColor(TFT_WHITE, fill);
+  M5.Display.setTextSize(2);
+  const int16_t half = int16_t(std::strlen(b.label)) * 6;   // ~12 px/char at size 2
+  int16_t tx = b.x + b.w / 2 - half;
+  if (tx < b.x + 4) tx = b.x + 4;
+  M5.Display.setCursor(tx, b.y + b.h / 2 - 8);
+  M5.Display.print(b.label);
+}
+
+// Repaint the status screen. ANTI-FLICKER: a signature of everything shown is
+// compared first and the function returns early when nothing changed — the
+// periodic full clear is what made the screen "flash". Layout is big paged
+// buttons, one page per mode group (see groupFor); scan pages show the live
+// scan index so a cell can be read straight off the panel.
 void draw(const topo::Sequencer& instrument, const Modes::State& modes) {
+  static uint32_t lastSig = 0xFFFFFFFFu;
+  const uint32_t sig = uint32_t(modes.active) * 2654435761u
+                     ^ (modes.diagnostic.scanIndex * 40503u)
+                     ^ (uint32_t(modes.brightness) << 3)
+                     ^ (uint32_t(instrument.tempo()) << 11)
+                     ^ (uint32_t(instrument.sequenceCount()) << 17)
+                     ^ (instrument.paused() ? 0x55000000u : 0u)
+                     ^ (modes.diagnostic.paused ? 0x00AA0000u : 0u);
+  if (sig == lastSig) return;
+  lastSig = sig;
+
+  const Group group = groupFor(modes.active);
+
   M5.Display.startWrite();
   M5.Display.fillScreen(TFT_BLACK);
 
-  // Header: title + live transport counters.
-  M5.Display.setTextSize(2);
-  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-  M5.Display.setCursor(8,5);
-  M5.Display.print("Topological Sequencer v2");
+  // Status line (compact). Scan pages show the live index + pause state.
   M5.Display.setTextSize(1);
-  M5.Display.setCursor(8,31);
-  M5.Display.printf("%.0f BPM | %u readers | %u bands | %s", instrument.tempo(),
-                    instrument.sequenceCount(), instrument.bandCount(),
-                    instrument.paused() ? "paused" : "running");
-
-  // Current mode name, centred over the button strip.
-  M5.Display.setCursor(64,65);
-  M5.Display.print(Modes::name(modes.active));
-
-  // Button strip. One label is dynamic: button 3 turns "Random" into "Step"
-  // when a diagnostic is active, because that is what it does there.
-  for (unsigned index = 0; index < sizeof(buttons) / sizeof(buttons[0]); ++index) {
-    const auto& button = buttons[index];
-    const uint16_t background = M5.Display.color565(35,45,40);
-    M5.Display.fillRoundRect(button.x, button.y, button.width, button.height, 3, background);
-    M5.Display.setTextColor(TFT_WHITE, background);
-    M5.Display.setCursor(button.x + 8, button.y + 12);
-    const char* label = index == 3 && modes.active != Modes::Kind::Performance ? "Step" : button.label;
-    M5.Display.print(label);
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Display.setCursor(6, 6);
+  if (group == G_SCAN) {
+    M5.Display.printf("idx:%lu   %s   br:%u",
+                      (unsigned long)modes.diagnostic.scanIndex,
+                      modes.diagnostic.paused ? "PAUSED" : "running",
+                      (unsigned)modes.brightness);
+  } else {
+    M5.Display.printf("%.0f BPM   %u readers   br:%u   %s", instrument.tempo(),
+                      (unsigned)instrument.sequenceCount(), (unsigned)modes.brightness,
+                      instrument.paused() ? "paused" : "running");
   }
 
-  // Footer: mapping status (yellow = not yet calibrated), brightness, and the
-  // overrun counter (kept at 0 during normal use).
+  // Mode selector row: big < name >.
+  for (const auto& b : kModeRow) drawButton(b, false);
+  M5.Display.setTextSize(2);
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  {
+    const char* name = Modes::name(modes.active);
+    const int16_t half = int16_t(std::strlen(name)) * 6;
+    int16_t tx = 160 - half;
+    if (tx < 62) tx = 62;
+    M5.Display.setCursor(tx, 44);
+    M5.Display.print(name);
+  }
+
+  // Active page's big buttons (PAUSE highlights when paused/stopped).
+  unsigned count = 0;
+  const Button* set = groupButtons(group, count);
+  for (unsigned i = 0; i < count; ++i) {
+    const bool on = set[i].action == ACT_PAUSE &&
+                    (modes.active == Modes::Kind::Performance ? instrument.paused()
+                                                              : modes.diagnostic.paused);
+    drawButton(set[i], on);
+  }
+
+  // Footer: calibration + overrun counter.
+  M5.Display.setTextSize(1);
   M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
-  M5.Display.setCursor(8,223);
-  M5.Display.printf("%s | brightness %u | overruns %lu",
+  M5.Display.setCursor(6, 230);
+  M5.Display.printf("%s | overruns %lu",
                     PanelMapping::calibrated ? "Calibrated" : "Map unverified",
-                    modes.brightness, static_cast<unsigned long>(instrument.overruns()));
+                    static_cast<unsigned long>(instrument.overruns()));
   M5.Display.endWrite();
 }
 }
